@@ -16,6 +16,7 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
 import dev.pi.gui.i18n.PiBundle
+import dev.pi.gui.skills.SearchTimeoutException
 import dev.pi.gui.skills.SkillScope
 import dev.pi.gui.skills.SkillSearchResult
 import dev.pi.gui.skills.SkillsRegistry
@@ -135,7 +136,11 @@ class AddSkillDialog(private val project: Project?) : DialogWrapper(project, tru
                         updateButtons()
                     }
                     .onFailure { error ->
-                        statusLabel.text = PiBundle.message("skills.search.failed", error.message ?: "")
+                        statusLabel.text = if (error is SearchTimeoutException) {
+                            PiBundle.message("skills.search.timeout")
+                        } else {
+                            PiBundle.message("skills.search.failed", error.message ?: "")
+                        }
                     }
             }
         }
