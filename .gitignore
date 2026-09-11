@@ -1,0 +1,13 @@
+build/
+.gradle/
+.intellijPlatform/
+out/
+*.iml
+.idea/
+.DS_Store
+
+# Never commit signing material or tokens
+secrets/
+*.pem
+*.crt
+*.p12

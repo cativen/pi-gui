@@ -1,0 +1,54 @@
+<idea-plugin>
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Pi GUI"
+                    anchor="right"
+                    icon="/icons/pi.svg"
+                    factoryClass="dev.pi.gui.ui.PiToolWindowFactory"/>
+
+        <applicationService serviceImplementation="dev.pi.gui.settings.PiSettings"/>
+
+        <applicationConfigurable parentId="tools"
+                                 instance="dev.pi.gui.settings.PiSettingsConfigurable"
+                                 id="dev.pi.gui.settings"
+                                 displayName="Pi GUI"/>
+
+        <notificationGroup id="Pi GUI" displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <action id="dev.pi.gui.OpenToolWindow"
+                class="dev.pi.gui.action.OpenPiToolWindowAction"
+                text="Open Pi GUI"
+                description="Open the Pi GUI tool window">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="alt shift P"/>
+        </action>
+        <action id="dev.pi.gui.NewSession"
+                class="dev.pi.gui.action.NewSessionAction"
+                text="New Pi Session"
+                description="Start a new pi chat session">
+            <add-to-group group-id="ToolsMenu" anchor="after" relative-to-action="dev.pi.gui.OpenToolWindow"/>
+        </action>
+
+        <action id="dev.pi.gui.SendPathToPi"
+                class="dev.pi.gui.action.SendPathToPiAction"
+                text="Send File Path to Pi GUI"
+                description="Insert the selected file, folder or selection path into the Pi GUI composer"
+                icon="/icons/pi.svg">
+            <!--
+              These menus are long enough to run past the bottom of the screen, and anchor="last"
+              put the item where it could not be reached. It goes first everywhere instead.
+              The extra groups cover the navigation bar and the scope/packages views, so any file
+              or folder the user can right-click offers it.
+            -->
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="first"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
+            <add-to-group group-id="EditorTabPopupMenu" anchor="first"/>
+            <add-to-group group-id="NavbarPopupMenu" anchor="first"/>
+            <add-to-group group-id="ScopeViewPopupMenu" anchor="first"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="alt shift A"/>
+        </action>
+    </actions>
+</idea-plugin>

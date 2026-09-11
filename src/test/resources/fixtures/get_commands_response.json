@@ -1,0 +1,69 @@
+{
+  "id": "pi-gui-commands",
+  "type": "response",
+  "command": "get_commands",
+  "success": true,
+  "data": {
+    "commands": [
+      {
+        "name": "llama",
+        "description": "Manage llama.cpp router models",
+        "source": "extension",
+        "sourceInfo": {
+          "path": "<inline:llama.cpp>",
+          "source": "inline",
+          "scope": "temporary",
+          "origin": "top-level"
+        }
+      },
+      {
+        "name": "skill:find-skills",
+        "description": "Helps users discover and install agent skills when they ask questions like \"how do I do X\", \"find a skill for X\", \"is there a skill that can...\", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill.",
+        "source": "skill",
+        "sourceInfo": {
+          "path": "/Users/zhoutao/.agents/skills/find-skills/SKILL.md",
+          "source": "auto",
+          "scope": "user",
+          "origin": "top-level",
+          "baseDir": "/Users/zhoutao/.agents"
+        }
+      },
+      {
+        "name": "skill:skill-creator",
+        "description": "Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for better triggering accuracy.",
+        "source": "skill",
+        "sourceInfo": {
+          "path": "/Users/zhoutao/.agents/skills/skill-creator/SKILL.md",
+          "source": "auto",
+          "scope": "user",
+          "origin": "top-level",
+          "baseDir": "/Users/zhoutao/.agents"
+        }
+      },
+      {
+        "name": "skill:ui-ux-pro-max",
+        "description": "UI/UX design intelligence for web and mobile. Includes 50+ styles, 161 color palettes, 57 font pairings, 161 product types, 99 UX guidelines, and 25 chart types across 10 stacks (React, Next.js, Vue, Svelte, SwiftUI, React Native, Flutter, Tailwind, shadcn/ui, and HTML/CSS). Actions: plan, build, create, design, implement, review, fix, improve, optimize, enhance, refactor, and check UI/UX code. Projects: website, landing page, dashboard, admin panel, e-commerce, SaaS, portfolio, blog, and mobile app. Elements: button, modal, navbar, sidebar, card, table, form, and chart. Styles: glassmorphism, claymorphism, minimalism, brutalism, neumorphism, bento grid, dark mode, responsive, skeuomorphism, and flat design. Topics: color systems, accessibility, animation, layout, typography, font pairing, spacing, interaction states, shadow, and gradient. Integrations: shadcn/ui MCP for component search and examples.",
+        "source": "skill",
+        "sourceInfo": {
+          "path": "/Users/zhoutao/.agents/skills/ui-ux-pro-max/SKILL.md",
+          "source": "auto",
+          "scope": "user",
+          "origin": "top-level",
+          "baseDir": "/Users/zhoutao/.agents"
+        }
+      },
+      {
+        "name": "skill:xlsx",
+        "description": "Use this skill any time a spreadsheet file is the primary input or output. This means any task where the user wants to: open, read, edit, or fix an existing .xlsx, .xlsm, .csv, or .tsv file (e.g., adding columns, computing formulas, formatting, charting, cleaning messy data); create a new spreadsheet from scratch or from other data sources; or convert between tabular file formats. Trigger especially when the user references a spreadsheet file by name or path — even casually (like \"the xlsx in my downloads\") — and wants something done to it or produced from it. Also trigger for cleaning or restructuring messy tabular data files (malformed rows, misplaced headers, junk data) into proper spreadsheets. The deliverable must be a spreadsheet file. Do NOT trigger when the primary deliverable is a Word document, HTML report, standalone Python script, database pipeline, or Google Sheets API integration, even if tabular data is involved.",
+        "source": "skill",
+        "sourceInfo": {
+          "path": "/Users/zhoutao/.agents/skills/xlsx/SKILL.md",
+          "source": "auto",
+          "scope": "user",
+          "origin": "top-level",
+          "baseDir": "/Users/zhoutao/.agents"
+        }
+      }
+    ]
+  }
+}
