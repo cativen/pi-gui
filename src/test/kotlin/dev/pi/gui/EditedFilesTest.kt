@@ -50,7 +50,8 @@ class EditedFilesTest {
         )
         assertEquals(1, edits.size)
         assertEquals("src/A.kt", edits[0].displayPath)
-        assertTrue(edits[0].absolutePath.endsWith("/proj/src/A.kt"))
+        // Canonical paths use '\' on Windows, '/' elsewhere.
+        assertTrue(edits[0].absolutePath.replace('\\', '/').endsWith("/proj/src/A.kt"))
     }
 
     /** A failed tool call wrote nothing, so it must not be reported as an edit. */

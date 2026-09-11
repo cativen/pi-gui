@@ -3,6 +3,10 @@ package dev.pi.gui.ui
 import com.google.gson.JsonObject
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.CustomShortcutSet
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
@@ -44,7 +48,10 @@ import java.awt.Graphics2D
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.RenderingHints
+import java.awt.datatransfer.Clipboard
+import java.awt.datatransfer.DataFlavor
 import java.awt.event.ActionEvent
+import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import java.io.File
 import javax.swing.AbstractAction
@@ -74,7 +81,18 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
         ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER,
     )
-    private val input = JBTextArea()
+    /**
+     * Overriding `paste()` catches every route that ends at `JTextComponent.paste()` — the
+     * right-click Paste menu item and programmatic callers. The keyboard route itself needs the
+     * local shortcut registered by [installPasteShortcut] because the IDE keymap can consume
+     * Cmd/Ctrl+V before Swing ever sees it.
+     */
+    private val input = object : JBTextArea() {
+        override fun paste() {
+            if (pasteAttachmentsFromClipboard()) return
+            super.paste()
+        }
+    }
     private val sendButton = PiButton(
         PiBundle.message("chat.send"), AllIcons.Actions.Execute, PiButton.Style.PRIMARY,
     )
@@ -304,6 +322,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         commandAnchor = shell
 
         installAttachmentDropTarget(shell)
+        installPasteShortcut()
 
         composer.add(attachmentStrip, BorderLayout.NORTH)
         composer.add(shell, BorderLayout.CENTER)
@@ -312,6 +331,86 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     }
 
     // ------------------------------------------------------------ attachments
+
+    /**
+     * Claims Cmd/Ctrl+V for the composer as a *local* shortcut.
+     *
+     * `IdeKeyEventDispatcher` lets plain letters through to a focused text component but hands
+     * modified keystrokes to the keymap first, so the IDE's global `$Paste` action could consume
+     * the key and paste into the code editor behind the tool window — silently dropping an image
+     * clipboard. Local shortcuts registered on the component are consulted before the keymap, so
+     * this action wins, and text paste still behaves exactly as before via [input].paste().
+     */
+    private fun installPasteShortcut() {
+        object : AnAction() {
+            override fun getActionUpdateThread() = ActionUpdateThread.EDT
+
+            override fun update(e: AnActionEvent) {
+                e.presentation.isEnabled = input.isEditable && input.isEnabled
+            }
+
+            override fun actionPerformed(e: AnActionEvent) {
+                input.paste()
+            }
+        }.registerCustomShortcutSet(
+            CustomShortcutSet(
+                com.intellij.openapi.actionSystem.KeyboardShortcut(
+                    KeyStroke.getKeyStroke(KeyEvent.VK_V, InputEvent.CTRL_DOWN_MASK), null),
+                com.intellij.openapi.actionSystem.KeyboardShortcut(
+                    KeyStroke.getKeyStroke(KeyEvent.VK_V, InputEvent.META_DOWN_MASK), null),
+                com.intellij.openapi.actionSystem.KeyboardShortcut(
+                    KeyStroke.getKeyStroke(KeyEvent.VK_INSERT, InputEvent.SHIFT_DOWN_MASK), null),
+            ),
+            input,
+            this,
+        )
+    }
+
+    /**
+     * Turns a clipboard carrying files or an image into attachments. Mirrors the flavor priority
+     * of [ComposerTransferHandler.importData]: files first, then raw images, so every entry point
+     * behaves identically. Returns true when the clipboard was consumed as attachments.
+     */
+    private fun pasteAttachmentsFromClipboard(): Boolean {
+        val contents = try {
+            systemClipboard()?.getContents(this)
+        } catch (e: IllegalStateException) {
+            null // Clipboard is held by another process; fall back to the default text paste.
+        } ?: return false
+
+        if (contents.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
+            try {
+                @Suppress("UNCHECKED_CAST")
+                val files =
+                    contents.getTransferData(DataFlavor.javaFileListFlavor) as? List<File>
+                if (!files.isNullOrEmpty()) {
+                    addAttachments(files)
+                    return true
+                }
+            } catch (e: Exception) {
+                log.debug("Clipboard file list unreadable", e)
+            }
+        }
+
+        if (contents.isDataFlavorSupported(DataFlavor.imageFlavor)) {
+            try {
+                val image = contents.getTransferData(DataFlavor.imageFlavor) as? java.awt.Image
+                if (image != null) {
+                    addClipboardImage(image)
+                    return true
+                }
+            } catch (e: Exception) {
+                log.debug("Clipboard image unreadable", e)
+            }
+        }
+        return false
+    }
+
+    private fun systemClipboard(): Clipboard? = try {
+        java.awt.Toolkit.getDefaultToolkit().systemClipboard
+    } catch (e: Exception) {
+        null
+    }
 
     /** Routes pasted/dropped files and images into attachments, on the composer and the input. */
     private fun installAttachmentDropTarget(target: JComponent) {
@@ -324,13 +423,14 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     }
 
     /**
-     * Intercepts files and images, forwarding everything else — including all clipboard traffic —
-     * to the component's original handler.
+     * Intercepts files and images on drag-and-drop and on the Swing paste route, forwarding
+     * everything else — including all clipboard text traffic — to the component's original
+     * handler.
      *
-     * Attachment handling lives here rather than on a Cmd+V key binding because the IDE's own
-     * `$Paste` action can consume the keystroke before any Swing `InputMap` sees it. Every route
-     * (IDE action, Swing paste, drag-and-drop) ends up calling `importData`, so this catches them
-     * all.
+     * Swing's own `ActionMap` maps "paste" to `TransferHandler.getPasteAction()`, which calls
+     * `importData` on this handler, so keyboard paste that reaches Swing lands here. The IDE
+     * keymap route — which can consume Cmd/Ctrl+V before Swing ever sees the event — is claimed
+     * by [installPasteShortcut] instead.
      */
     private class ComposerTransferHandler(
         private val delegate: javax.swing.TransferHandler?,

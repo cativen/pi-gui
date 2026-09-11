@@ -260,12 +260,17 @@ class SlashCommandTest : BasePlatformTestCase() {
         val panel = ChatPanel(project)
         try {
             val input = panel.inputForTest()
-            // The caret actions walk the text view, which only exists once the area is laid out.
+            // The caret actions walk the text view, which only acquires real geometry (font
+            // metrics, line heights) once it has been painted. setSize/doLayout alone leave the
+            // view unlayed on some platforms, making "move down" a no-op; painting into an
+            // offscreen image forces the layout without needing a visible window.
             panel.setSize(600, 400)
             panel.doLayout()
             input.setSize(400, 120)
             input.doLayout()
+            val image = java.awt.image.BufferedImage(400, 120, java.awt.image.BufferedImage.TYPE_INT_RGB)
             input.text = "first\nsecond"
+            input.paint(image.createGraphics())
             input.caretPosition = 0
             input.actionMap.get("pi.command.next")
                 .actionPerformed(java.awt.event.ActionEvent(input, 0, "down"))

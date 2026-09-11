@@ -6,6 +6,7 @@ import dev.pi.gui.ui.ChatPanel
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 import java.awt.datatransfer.Transferable
+import java.awt.event.KeyEvent
 import java.awt.image.BufferedImage
 import java.io.File
 
@@ -115,6 +116,150 @@ class ImagePasteTest : BasePlatformTestCase() {
         } finally {
             panel.dispose()
         }
+    }
+
+    /**
+     * The real Ctrl+V route: Swing's `DefaultEditorKit` paste action ends at
+     * `JTextComponent.paste()`, which never consults the `TransferHandler`. With only an image
+     * on the clipboard this used to be a silent no-op.
+     */
+    fun testKeyboardPasteOfAnImageCreatesAnAttachment() {
+        val panel = ChatPanel(project)
+        try {
+            val input = panel.inputForTest()
+            input.text = ""
+            java.awt.Toolkit.getDefaultToolkit().systemClipboard
+                .setContents(ImageTransferable(image()), null)
+            input.paste()
+            val attachments = waitForAttachment(panel)
+            assertEquals(1, attachments.size)
+            val attachment = attachments.single() as Attachment.Image
+            assertEquals("image/png", attachment.mimeType)
+            // Nothing may leak into the composer as text either.
+            assertEquals("", input.text)
+        } finally {
+            panel.dispose()
+        }
+    }
+
+    /** A file copied in Explorer arrives on the clipboard as a file list, with no text flavor. */
+    fun testKeyboardPasteOfAFileListCreatesAnAttachment() {
+        val png = File.createTempFile("pi-paste", ".png").also {
+            javax.imageio.ImageIO.write(image(), "png", it)
+            it.deleteOnExit()
+        }
+        val panel = ChatPanel(project)
+        try {
+            val input = panel.inputForTest()
+            input.text = ""
+            // A file list only — no string flavor, exactly like a copy in Explorer/Finder.
+            java.awt.Toolkit.getDefaultToolkit().systemClipboard
+                .setContents(FileListTransferable(listOf(png)), null)
+            input.paste()
+            val attachments = waitForAttachment(panel)
+            assertEquals(1, attachments.size)
+            val attachment = attachments.single() as Attachment.Image
+            assertEquals(png.name, attachment.displayName)
+            assertEquals("", input.text)
+        } finally {
+            panel.dispose()
+            png.delete()
+        }
+    }
+
+    /**
+     * The real IDE intercepts Cmd/Ctrl+V for the keymap `$Paste` action before Swing can see it,
+     * so the composer must claim the key as a local shortcut. Local shortcuts are consulted
+     * before the keymap by `IdeKeyEventDispatcher`.
+     */
+    fun testPasteShortcutIsRegisteredOnTheComposer() {
+        val panel = ChatPanel(project)
+        try {
+            val input = panel.inputForTest()
+            val actions = com.intellij.openapi.actionSystem.ex.ActionUtil.getActions(input)
+            assertTrue("a paste action must be registered on the composer", actions.isNotEmpty())
+            val strokes = actions
+                .flatMap { it.shortcutSet.shortcuts.filterIsInstance<com.intellij.openapi.actionSystem.KeyboardShortcut>() }
+                .map { it.firstKeyStroke }
+            assertTrue(
+                "must claim Ctrl+V locally",
+                javax.swing.KeyStroke.getKeyStroke(KeyEvent.VK_V, java.awt.event.InputEvent.CTRL_DOWN_MASK) in strokes,
+            )
+            assertTrue(
+                "must claim Cmd+V locally for macOS",
+                javax.swing.KeyStroke.getKeyStroke(KeyEvent.VK_V, java.awt.event.InputEvent.META_DOWN_MASK) in strokes,
+            )
+        } finally {
+            panel.dispose()
+        }
+    }
+
+    /**
+     * Full keyboard path: real window, real focus, a real KEY_PRESSED posted through the system
+     * event queue — i.e. through `IdeEventQueue` and its action dispatchers, exactly like a
+     * keystroke in the running IDE. Whichever layer wins (IDE dispatcher local shortcut, Swing
+     * ActionMap, `JTextComponent.paste()`), the image must end up as an attachment.
+     */
+    fun testRealCtrlVKeyEventAttachesImage() {
+        assumeClipboardAndFocusAvailable()
+        val panel = ChatPanel(project)
+        var frame: javax.swing.JFrame? = null
+        try {
+            val input = panel.inputForTest()
+            // Tests run on the EDT, so drive the frame directly and pump pending events while waiting.
+            frame = javax.swing.JFrame("pi paste test").also {
+                it.contentPane.add(panel)
+                it.setSize(420, 320)
+                it.setLocationRelativeTo(null)
+                it.isVisible = true
+            }
+            input.requestFocusInWindow()
+            waitFor(200) { input.isFocusOwner }
+            assertTrue("composer must own the keyboard focus", input.isFocusOwner)
+
+            java.awt.Toolkit.getDefaultToolkit().systemClipboard
+                .setContents(ImageTransferable(image()), null)
+            // Dispatch through the IDE's own event queue — the same dispatcher chain a real
+            // keystroke passes through (ActionManager shortcut processing included).
+            com.intellij.ide.IdeEventQueue.getInstance().dispatchEvent(
+                java.awt.event.KeyEvent(
+                    input,
+                    java.awt.event.KeyEvent.KEY_PRESSED,
+                    System.currentTimeMillis(),
+                    java.awt.event.InputEvent.CTRL_DOWN_MASK,
+                    java.awt.event.KeyEvent.VK_V,
+                    'v',
+                )
+            )
+            val attachments = waitForAttachment(panel)
+            assertEquals("Ctrl+V must attach the clipboard image", 1, attachments.size)
+            assertEquals("no text may be inserted", "", input.text)
+        } finally {
+            frame?.dispose()
+            panel.dispose()
+        }
+    }
+
+    /** The full-path test needs a desktop and a working clipboard; skip where absent. */
+    private fun assumeClipboardAndFocusAvailable() {
+        try {
+            if (java.awt.GraphicsEnvironment.isHeadless()) {
+                org.junit.Assume.assumeNoException(java.awt.HeadlessException("headless"))
+            }
+            java.awt.Toolkit.getDefaultToolkit().systemClipboard.getContents(null)
+        } catch (e: Exception) {
+            org.junit.Assume.assumeNoException(e)
+        }
+    }
+
+    private inline fun waitFor(timeoutMs: Int, condition: () -> Boolean): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (condition()) return true
+            com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents()
+            Thread.sleep(25)
+        }
+        return condition()
     }
 
     fun testOversizedPastedImageIsRejected() {
