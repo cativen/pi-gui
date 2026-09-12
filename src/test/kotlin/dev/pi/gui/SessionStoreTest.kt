@@ -3,6 +3,7 @@ package dev.pi.gui
 import dev.pi.gui.model.PiMessage
 import dev.pi.gui.session.SessionStore
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -176,5 +177,63 @@ class SessionStoreTest {
         assertEquals("999", SessionStore.formatTokens(999))
         assertEquals("1.5k", SessionStore.formatTokens(1500))
         assertEquals("2.0M", SessionStore.formatTokens(2_000_000))
+    }
+
+    // -------------------------------------------------------------- renaming
+
+    /** Renaming appends a `session_info` entry; readers take the last one, so it wins. */
+    @Test
+    fun `rename appends a session_info entry that wins`() {
+        val f = sessionFile(
+            """{"type":"session","version":3,"id":"s1","timestamp":"2026-01-01T00:00:00.000Z","cwd":"/tmp/p"}""",
+            """{"type":"message","id":"a1","parentId":null,"message":{"role":"user","content":"do it"}}""",
+        )
+        assertTrue(SessionStore.renameSession(f, "Bug hunt"))
+        assertEquals("Bug hunt", SessionStore.readSessionInfo(f)!!.displayTitle())
+
+        // Renaming again just writes a newer entry.
+        assertTrue(SessionStore.renameSession(f, "Bug hunt, part 2"))
+        assertEquals("Bug hunt, part 2", SessionStore.readSessionInfo(f)!!.displayTitle())
+
+        // The appended entry must not corrupt the transcript.
+        assertEquals(1, SessionStore.readTranscript(f).size)
+    }
+
+    @Test
+    fun `rename collapses whitespace and rejects blank names or missing files`() {
+        val f = sessionFile(
+            """{"type":"session","version":3,"id":"s1","timestamp":"2026-01-01T00:00:00.000Z","cwd":"/tmp/p"}""",
+        )
+        assertFalse(SessionStore.renameSession(f, "   "))
+        assertTrue(SessionStore.renameSession(f, "  multi   line  name  "))
+        assertEquals("multi line name", SessionStore.readSessionInfo(f)!!.name)
+        assertFalse(SessionStore.renameSession(File(tmp.root, "missing.jsonl"), "x"))
+    }
+
+    /**
+     * The header cache is what keeps sidebar refreshes cheap; it must never serve a stale
+     * header after the file changed, and a forced drop must also re-read.
+     */
+    @Test
+    fun `cached headers follow file changes`() {
+        val f = sessionFile(
+            """{"type":"session","version":3,"id":"s1","timestamp":"2026-01-01T00:00:00.000Z","cwd":"/tmp/p"}""",
+            """{"type":"message","id":"a1","parentId":null,"message":{"role":"user","content":"do it"}}""",
+        )
+        assertEquals("do it", SessionStore.readSessionInfo(f)!!.displayTitle())
+        assertEquals("do it", SessionStore.readSessionInfo(f)!!.displayTitle()) // served from cache
+
+        assertTrue(SessionStore.renameSession(f, "Named"))
+        assertEquals("Named", SessionStore.readSessionInfo(f)!!.displayTitle())
+
+        // Rewriting the file behind the cache's back: a changed length must invalidate it.
+        f.appendText(
+            """{"type":"session_info","id":"n9","parentId":"a1","name":"Manual edit"}""" + "\n",
+        )
+        assertEquals("Manual edit", SessionStore.readSessionInfo(f)!!.displayTitle())
+
+        // Same length, same mtime — only an explicit drop re-reads. (Tests rewrite files fast.)
+        SessionStore.dropHeaderCache()
+        assertEquals("Manual edit", SessionStore.readSessionInfo(f)!!.displayTitle())
     }
 }

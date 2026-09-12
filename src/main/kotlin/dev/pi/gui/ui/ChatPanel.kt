@@ -183,6 +183,18 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     /** Coalesces streaming deltas so a fast model does not force a repaint per token. */
     private val repaintTimer = Timer(80) { flushStreaming() }.apply { isRepeats = false }
 
+    /**
+     * Collapses eager agent starts (session switches, tool-window shows) into one spawn.
+     *
+     * Every session switch stops the old agent and boots a fresh `pi --mode rpc` — a ~3s node
+     * startup. Rapidly clicking through the list used to kill each booting process and start
+     * another, serially wasting several spawns; a short one-shot delay turns a click-storm
+     * into exactly one. User-initiated starts (sending a prompt) bypass this and start now.
+     */
+    private val eagerStartTimer = Timer(EAGER_START_DEBOUNCE_MS) {
+        if (!disposed) ensureAgentRunning()
+    }.apply { isRepeats = false }
+
     /** Drives the live elapsed counter and picks up branch switches while the panel is open. */
     private val tickTimer = Timer(500) {
         if (isRunning) setStatus(statusSummary())
@@ -1077,8 +1089,16 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     // ------------------------------------------------------------ session load
 
+    /** Path of the session whose transcript is loaded (or currently loading). */
+    private var loadedSessionPath: String? = null
+
     /** Show an existing session's transcript, read from disk. */
     fun loadSession(info: SessionInfo) {
+        // Re-clicking the session that is already on screen must not churn: a reload kills and
+        // re-spawns the agent (~3s) and re-renders the whole transcript, which made clicking
+        // around the list feel laggy. Pick up disk changes via the refresh button instead.
+        if (loadedSessionPath == info.filePath) return
+        loadedSessionPath = info.filePath
         // A restart is coming right away for the new session; queued start results survive it.
         stopAgent(expectRestart = true)
         session = info
@@ -1098,7 +1118,13 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         }
         // Resuming binds a fresh process to this session; having it ready repopulates the
         // footer combos before the first prompt.
-        ensureAgentRunning()
+        scheduleEagerAgentStart()
+    }
+
+    private fun scheduleEagerAgentStart() {
+        // restart() (not a plain start) so a burst of switches keeps pushing the spawn back
+        // until the clicking settles.
+        eagerStartTimer.restart()
     }
 
     /** Discard the current conversation and begin a fresh one in this project. */
@@ -1109,6 +1135,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         // Skills and extensions may have been added since; re-ask rather than serve a stale list.
         commandRegistry.invalidate()
         session = null
+        loadedSessionPath = null
         messages.clear()
         visibleLimit = VISIBLE_PAGE_SIZE
         rebuildTranscript()
@@ -1403,6 +1430,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     private fun stopAgent(expectRestart: Boolean = false) {
         repaintTimer.stop()
+        eagerStartTimer.stop()
         rpc?.stop()
         rpc = null
         streaming.end()
@@ -2002,8 +2030,22 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     fun currentSession(): SessionInfo? = session
 
+    /**
+     * A rename from the sidebar for the currently loaded session: swap the stored info so the
+     * status strip (which shows the title) stays truthful. Other sessions need nothing.
+     */
+    fun applySessionRename(info: SessionInfo) {
+        val current = session ?: return
+        if (current.filePath != info.filePath) return
+        session = info
+        setStatus(statusSummary())
+    }
+
     @org.jetbrains.annotations.TestOnly
     fun composerText(): String = input.text
+
+    @org.jetbrains.annotations.TestOnly
+    fun loadedSessionPathForTest(): String? = loadedSessionPath
 
     @org.jetbrains.annotations.TestOnly
     fun transcriptChildCountForTest(): Int = transcript.componentCount
@@ -2069,6 +2111,9 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         private const val CARD_CHAT = "chat"
         private const val VISIBLE_PAGE_SIZE = 60
 
+        /** Long enough to absorb a burst of session switches, short enough to stay invisible. */
+        private const val EAGER_START_DEBOUNCE_MS = 250
+
         /**
          * Join the typed text with its `@path` mentions.
          *
@@ -2087,6 +2132,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         commandPopup.hide()
         repaintTimer.stop()
         tickTimer.stop()
+        eagerStartTimer.stop()
         stopAgent()
     }
 }

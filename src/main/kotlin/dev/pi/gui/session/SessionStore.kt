@@ -14,6 +14,10 @@ import dev.pi.gui.rpc.getAsJsonObjectOrNull
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
+import java.nio.file.StandardOpenOption
+import java.time.Instant
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Reads pi session files straight off disk.
@@ -48,7 +52,9 @@ object SessionStore {
             dir.listFiles()?.forEach { file ->
                 if (!file.isFile || !file.name.endsWith(".jsonl")) return@forEach
                 val info = readSessionInfo(file) ?: return@forEach
-                if (canonical(info.cwd) == canonicalTarget) result.add(info)
+                // Raw compare first: `canonical()` touches the filesystem, and with the header
+                // cache this is the only per-file cost left on a refresh.
+                if (info.cwd == projectPath || canonical(info.cwd) == canonicalTarget) result.add(info)
             }
         }
         return result.sortedByDescending { it.lastModified }
@@ -75,11 +81,47 @@ object SessionStore {
         File(path).absolutePath
     }.let { if (PiLocator.isWindows()) it.lowercase() else it }
 
+    // -------------------------------------------------------------- header cache
+
+    /** What a session file looked like when its header was last parsed. */
+    private class CachedHeader(val lastModified: Long, val length: Long, val info: SessionInfo?)
+
+    /**
+     * Session headers already parsed, keyed by absolute path.
+     *
+     * The sidebar refreshes after every turn, and each refresh walks *every* session file of
+     * *every* project under `~/.pi/agent/sessions`. Without this cache that means re-reading and
+     * re-parsing megabytes of JSONL — repeated allocation churn and filesystem traffic — to
+     * discover that one file changed. A [SessionInfo] is a handful of small strings, so even
+     * thousands of entries cost a fraction of what a single re-parse allocates.
+     */
+    private val headerCache = ConcurrentHashMap<String, CachedHeader>()
+
+    private const val MAX_CACHED_HEADERS = 2_000
+
+    /** Drops cached headers; used by tests that rewrite files within one millisecond. */
+    fun dropHeaderCache() = headerCache.clear()
+
     /**
      * Cheap header read: pulls the session id/cwd/name plus a preview of the first user message
-     * without materializing the whole transcript.
+     * without materializing the whole transcript. Results are cached per file until its size or
+     * modification time changes.
      */
     fun readSessionInfo(file: File): SessionInfo? {
+        val mtime = file.lastModified()
+        val length = file.length()
+        val key = file.absolutePath
+        headerCache[key]
+            ?.takeIf { it.lastModified == mtime && it.length == length }
+            ?.let { return it.info }
+
+        val info = readSessionInfoUncached(file)
+        if (headerCache.size >= MAX_CACHED_HEADERS) headerCache.clear()
+        headerCache[key] = CachedHeader(mtime, length, info)
+        return info
+    }
+
+    private fun readSessionInfoUncached(file: File): SessionInfo? {
         return try {
             var id: String? = null
             var cwd: String? = null
@@ -209,12 +251,57 @@ object SessionStore {
         return messages
     }
 
-    fun deleteSession(file: File): Boolean = try {
-        file.delete()
-    } catch (e: Exception) {
-        LOG.warn("Failed to delete session ${file.absolutePath}", e)
-        false
+    fun deleteSession(file: File): Boolean {
+        headerCache.remove(file.absolutePath)
+        return try {
+            file.delete()
+        } catch (e: Exception) {
+            LOG.warn("Failed to delete session ${file.absolutePath}", e)
+            false
+        }
     }
+
+    /**
+     * Renames a session by appending a `session_info` entry — the same mechanism pi itself uses
+     * when naming a session, and readers take the *last* such entry, so renaming is simply
+     * writing a newer one. No agent process is needed, and pi's own TUI shows the same name.
+     */
+    fun renameSession(file: File, name: String): Boolean {
+        val clean = name.replace(Regex("\\s+"), " ").trim().take(MAX_SESSION_NAME_LENGTH)
+        if (clean.isEmpty() || !file.isFile) return false
+        return try {
+            val parentId = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8).use { reader ->
+                var id: String? = null
+                while (true) {
+                    val line = reader.readLine() ?: break
+                    if (line.isBlank()) continue
+                    parseLine(line)?.get("id")?.asStringOrNull()?.let { id = it }
+                }
+                id
+            }
+            val entry = JsonObject().apply {
+                addProperty("type", "session_info")
+                addProperty("id", UUID.randomUUID().toString())
+                parentId?.let { addProperty("parentId", it) }
+                addProperty("timestamp", Instant.now().toString())
+                addProperty("name", clean)
+            }
+            Files.write(
+                file.toPath(),
+                (entry.toString() + "\n").toByteArray(StandardCharsets.UTF_8),
+                StandardOpenOption.APPEND,
+            )
+            // The append changes length (and usually mtime), but drop the entry explicitly so a
+            // same-millisecond write can never serve the stale header.
+            headerCache.remove(file.absolutePath)
+            true
+        } catch (e: Exception) {
+            LOG.warn("Failed renaming session ${file.absolutePath}", e)
+            false
+        }
+    }
+
+    private const val MAX_SESSION_NAME_LENGTH = 200
 
     private fun parseLine(line: String): JsonObject? = try {
         JsonParser.parseString(line).takeIf { it.isJsonObject }?.asJsonObject

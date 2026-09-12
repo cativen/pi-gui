@@ -1,7 +1,9 @@
 package dev.pi.gui.ui
 
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.InputValidator
 import com.intellij.openapi.ui.Messages
 import com.intellij.ui.ColoredListCellRenderer
 import com.intellij.ui.SimpleTextAttributes
@@ -20,7 +22,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import javax.swing.DefaultListModel
 import javax.swing.JList
+import javax.swing.JMenuItem
 import javax.swing.JPanel
+import javax.swing.JPopupMenu
 import javax.swing.KeyStroke
 import javax.swing.ListSelectionModel
 
@@ -31,6 +35,9 @@ class SessionListPanel(private val project: Project) : JPanel(BorderLayout()) {
     private val list = JBList(model)
 
     var onSessionSelected: ((SessionInfo) -> Unit)? = null
+
+    /** Fires after the user renamed a session, so a loaded chat can update its title. */
+    var onSessionRenamed: ((SessionInfo) -> Unit)? = null
 
     init {
         list.selectionMode = ListSelectionModel.SINGLE_SELECTION
@@ -43,6 +50,10 @@ class SessionListPanel(private val project: Project) : JPanel(BorderLayout()) {
                     selectedSession()?.let { onSessionSelected?.invoke(it) }
                 }
             }
+
+            // Right-click should act on the row under the cursor, not the old selection.
+            override fun mousePressed(e: MouseEvent) = selectForPopup(e)
+            override fun mouseReleased(e: MouseEvent) = selectForPopup(e)
         })
 
         list.inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "pi.deleteSession")
@@ -50,6 +61,14 @@ class SessionListPanel(private val project: Project) : JPanel(BorderLayout()) {
         list.actionMap.put("pi.deleteSession", object : javax.swing.AbstractAction() {
             override fun actionPerformed(e: java.awt.event.ActionEvent) = deleteSelected()
         })
+
+        // F2 renames, as it does everywhere else in the IDE.
+        list.inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_F2, 0), "pi.renameSession")
+        list.actionMap.put("pi.renameSession", object : javax.swing.AbstractAction() {
+            override fun actionPerformed(e: java.awt.event.ActionEvent) = renameSelected()
+        })
+
+        installPopupMenu()
 
         list.background = PiTheme.surfaceBg
         list.border = JBUI.Borders.empty(4, 0)
@@ -113,7 +132,69 @@ class SessionListPanel(private val project: Project) : JPanel(BorderLayout()) {
         )
         if (confirmed != Messages.YES) return
         if (SessionStore.deleteSession(File(session.filePath))) refresh()
-        else Messages.showErrorDialog(project, "Could not delete the session file.", "Pi GUI")
+        else Messages.showErrorDialog(
+            project,
+            PiBundle.message("sessions.delete.failed"),
+            PiBundle.message("sessions.delete.title"),
+        )
+    }
+
+    /** Right-click menu: rename and delete, the two things one wants on a session row. */
+    private fun installPopupMenu() {
+        list.componentPopupMenu = JPopupMenu().apply {
+            add(menuItem(PiBundle.message("sessions.rename"), AllIcons.Actions.Edit) { renameSelected() })
+            add(menuItem(PiBundle.message("sessions.delete"), AllIcons.Actions.GC) { deleteSelected() })
+        }
+    }
+
+    private fun menuItem(text: String, icon: javax.swing.Icon, action: () -> Unit): JMenuItem =
+        JMenuItem(text, icon).apply { addActionListener { action() } }
+
+    private fun selectForPopup(e: MouseEvent) {
+        if (!e.isPopupTrigger) return
+        val index = list.locationToIndex(e.point)
+        if (index >= 0) list.selectedIndex = index
+    }
+
+    /**
+     * Rename the selected session. The name is appended to the session file as a
+     * `session_info` entry — the same way pi persists names — so it survives restarts and
+     * shows up in pi's own TUI too. Works without a running agent, even for old sessions.
+     */
+    private fun renameSelected() {
+        val session = selectedSession() ?: return
+        val validator = object : InputValidator {
+            override fun checkInput(inputString: String): Boolean = inputString.isNotBlank()
+            override fun canClose(inputString: String): Boolean = inputString.isNotBlank()
+        }
+        val chosen = Messages.showInputDialog(
+            project,
+            PiBundle.message("sessions.rename.prompt"),
+            PiBundle.message("sessions.rename.title"),
+            Messages.getQuestionIcon(),
+            session.displayTitle(),
+            validator,
+        )?.trim() ?: return // null = cancelled
+        if (chosen.isBlank() || chosen == session.name) return
+
+        if (!SessionStore.renameSession(File(session.filePath), chosen)) {
+            Messages.showErrorDialog(
+                project,
+                PiBundle.message("sessions.rename.failed"),
+                PiBundle.message("sessions.rename.title"),
+            )
+            return
+        }
+
+        // Update the row in place so the selection and scroll position survive.
+        val updated = session.copy(name = chosen)
+        for (i in 0 until model.size()) {
+            if (model.getElementAt(i).filePath == updated.filePath) {
+                model.setElementAt(updated, i)
+                break
+            }
+        }
+        onSessionRenamed?.invoke(updated)
     }
 
     private class SessionCellRenderer : ColoredListCellRenderer<SessionInfo>() {

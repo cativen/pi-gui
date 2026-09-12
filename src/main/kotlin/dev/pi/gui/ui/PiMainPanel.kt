@@ -43,6 +43,7 @@ class PiMainPanel(private val project: Project) : JPanel(BorderLayout()), Dispos
         Disposer.register(this, chat)
 
         sessions.onSessionSelected = { info -> chat.loadSession(info) }
+        sessions.onSessionRenamed = { info -> chat.applySessionRename(info) }
         chat.onSessionChanged = { sessions.refresh() }
         // `/new` and `/resume` drive the same chrome the toolbar buttons do.
         chat.onNewSessionRequested = { newSession() }
