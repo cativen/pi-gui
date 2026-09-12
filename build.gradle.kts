@@ -1,3 +1,5 @@
+import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
+
 plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm") version "2.0.21"
@@ -97,9 +99,15 @@ intellijPlatform {
 
     pluginVerification {
         ides {
-            // Verify against the locally installed IDE, which is newer than the build target.
-            val localIde = file("/Applications/IntelliJ IDEA.app")
-            if (localIde.exists()) local(localIde.absolutePath)
+            // Machine-independent verification, so it runs identically for anyone on any OS
+            // (the old setup probed a locally installed IDE path that only existed on one
+            // Mac and silently verified nothing elsewhere):
+            //   - the floor of the supported range (sinceBuild = 243), which is also the
+            //     build target and already in the Gradle cache, and
+            //   - recommended(), the newest stable release the verifier suggests for the
+            //     range — catches regressions on IDEs newer than the build target.
+            ide(IntelliJPlatformType.IntellijIdeaCommunity, "2024.3.1")
+            recommended()
         }
     }
 }
