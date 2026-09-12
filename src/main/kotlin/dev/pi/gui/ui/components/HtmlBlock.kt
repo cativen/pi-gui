@@ -22,6 +22,13 @@ class HtmlBlock(
     html: String = "",
     /** Overrides the body/link color — e.g. white text inside the filled user bubble. */
     private val fgOverride: java.awt.Color? = null,
+    /**
+     * When set, height comes from plain line arithmetic on [wrapText] in a monospace font
+     * instead of a full HTML layout pass. Code blocks are the bulk of a heavy transcript and
+     * View-based measurement is O(document): measuring tens of thousands of code lines on
+     * first validation froze the EDT for seconds on every session switch.
+     */
+    private val monospaceText: String? = null,
 ) : JEditorPane(), WidthAware {
 
     private var lastWidth = -1
@@ -32,7 +39,7 @@ class HtmlBlock(
         isEditable = false
         isOpaque = false
         border = JBUI.Borders.empty()
-        font = PiTheme.uiFont()
+        font = if (monospaceText != null) PiTheme.monoFont() else PiTheme.uiFont()
         // Let the caret exist for selection, but never show an insertion cursor.
         putClientProperty(HONOR_DISPLAY_PROPERTIES, true)
         addHyperlinkListener { e ->
@@ -99,20 +106,39 @@ class HtmlBlock(
 
         val insets = insets
         val inner = (width - insets.left - insets.right).coerceAtLeast(1)
-        val height = try {
-            // Give the pane a real width first: the root view measures against the current size.
-            setSize(inner, Short.MAX_VALUE.toInt())
-            // `ui` resolves to JComponent's ComponentUI field, so go through TextUI explicitly.
-            val root: View = (ui as TextUI).getRootView(this)
-            root.setSize(inner.toFloat(), Float.MAX_VALUE)
-            Math.ceil(root.getPreferredSpan(View.Y_AXIS).toDouble()).toInt()
-        } catch (e: Exception) {
-            preferredSize.height
+        val height = monospaceText?.let { analyticHeight(it, inner) } ?: run {
+            try {
+                // Give the pane a real width first: the root view measures against the current size.
+                setSize(inner, Short.MAX_VALUE.toInt())
+                // `ui` resolves to JComponent's ComponentUI field, so go through TextUI explicitly.
+                val root: View = (ui as TextUI).getRootView(this)
+                root.setSize(inner.toFloat(), Float.MAX_VALUE)
+                Math.ceil(root.getPreferredSpan(View.Y_AXIS).toDouble()).toInt()
+            } catch (e: Exception) {
+                preferredSize.height
+            }
         } + insets.top + insets.bottom
 
         lastWidth = width
         lastHeight = height
         return height
+    }
+
+    /**
+     * Monospace line arithmetic: each source line occupies `ceil(textWidth / inner)` rows at
+     * the font's row height. A `FontMetrics` sweep is far cheaper than HTML view layout and
+     * never has to touch the document. One slack row keeps wrapped/rounding edge cases from
+     * clipping the last line.
+     */
+    private fun analyticHeight(text: String, innerWidth: Int): Int {
+        val fm = getFontMetrics(font)
+        var rows = 0
+        text.lineSequence().forEach { raw ->
+            val line = if (raw.contains('\t')) raw.replace("\t", "    ") else raw
+            val w = fm.stringWidth(line)
+            rows += maxOf(1, (w + innerWidth - 1) / innerWidth)
+        }
+        return rows * fm.height + fm.height + fm.descent
     }
 
     override fun getPreferredSize(): Dimension {

@@ -25,6 +25,7 @@ import dev.pi.gui.i18n.PiBundle
 import dev.pi.gui.git.GitInfo
 import dev.pi.gui.model.AgentPhase
 import dev.pi.gui.model.Attachment
+import dev.pi.gui.model.ContentBlock
 import dev.pi.gui.model.ModelOption
 import dev.pi.gui.model.PiMessage
 import dev.pi.gui.model.SessionInfo
@@ -121,6 +122,9 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     /** How many trailing messages are currently materialised. */
     private var visibleLimit = VISIBLE_PAGE_SIZE
+
+    /** Lines of message content the transcript window may lay out at once. */
+    private var visibleLineBudget = INITIAL_LINE_BUDGET
 
     private val attachments = mutableListOf<Attachment>()
     private val attachmentStrip = AttachmentStrip { removeAttachment(it) }
@@ -1103,7 +1107,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         stopAgent(expectRestart = true)
         session = info
         messages.clear()
-        visibleLimit = VISIBLE_PAGE_SIZE
+        resetTranscriptWindow()
         setStatus(PiBundle.message("status.loading"))
         val file = File(info.filePath)
         ApplicationManager.getApplication().executeOnPooledThread {
@@ -1137,7 +1141,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         session = null
         loadedSessionPath = null
         messages.clear()
-        visibleLimit = VISIBLE_PAGE_SIZE
+        resetTranscriptWindow()
         rebuildTranscript()
         showEmptyState()
         setStatus(PiBundle.message("status.newSession"))
@@ -1162,14 +1166,16 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     /**
      * Renders only the tail of the conversation.
      *
-     * Every message costs an HTML layout pass, so materialising a few hundred of them at once
-     * froze the UI for seconds when opening a long session. Older messages are one click away.
+     * The window is bounded twice: by message count and by the volume of text. Every message
+     * costs an HTML parse plus a full-document layout pass, and a heavy session (dozens of
+     * pasted files) laid out 36,000+ lines at once — a multi-second EDT freeze on every
+     * switch. Bounding by lines keeps that at one screenful no matter how big each message is.
      */
     private fun rebuildTranscript() {
         transcript.removeAll()
         streamingComponent = null
 
-        val hidden = (messages.size - visibleLimit).coerceAtLeast(0)
+        val hidden = hiddenMessageCount()
         if (hidden > 0) transcript.add(buildLoadEarlierRow(hidden))
         messages.drop(hidden).forEach { transcript.add(MessageRenderer.render(project, it)) }
 
@@ -1179,6 +1185,53 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         transcript.repaint()
     }
 
+    /** Window state; reset whenever a different conversation is shown. */
+    private fun resetTranscriptWindow() {
+        visibleLimit = VISIBLE_PAGE_SIZE
+        visibleLineBudget = INITIAL_LINE_BUDGET
+    }
+
+    /**
+     * How many leading messages stay unrendered. Walks from the newest message back until
+     * either the message cap or the line budget is spent; the newest message always renders,
+     * even alone, so there is always something to see.
+     */
+    private fun hiddenMessageCount(): Int {
+        var lines = 0
+        var shown = 0
+        for (i in messages.indices.reversed()) {
+            if (shown >= visibleLimit) break
+            val cost = renderedLineCost(messages[i])
+            if (shown > 0 && lines + cost > visibleLineBudget) break
+            lines += cost
+            shown++
+        }
+        return messages.size - shown
+    }
+
+    /**
+     * Lines of HTML a message will actually lay out. Collapsed sections (thinking off, tool
+     * calls/results) build nothing until opened, so they cost a token amount.
+     */
+    private fun renderedLineCost(message: PiMessage): Int {
+        val settings = PiSettings.getInstance()
+        return when (message) {
+            is PiMessage.User -> message.text.count { it == '\n' } + 1
+            is PiMessage.Assistant -> 1 + message.blocks.sumOf { block: ContentBlock ->
+                when (block) {
+                    is ContentBlock.Text -> block.text.count { it == '\n' } + 1
+                    is ContentBlock.Thinking ->
+                        if (settings.showThinking) block.thinking.count { it == '\n' } + 1 else 1
+                    is ContentBlock.ToolCall ->
+                        if (settings.autoExpandToolCalls) block.argumentsText().count { it == '\n' } + 1 else 2
+                    is ContentBlock.Image -> 1
+                }
+            }
+            is PiMessage.ToolResult -> 2
+            is PiMessage.Notice -> 1
+        }
+    }
+
     private fun buildLoadEarlierRow(hidden: Int): JComponent {
         val row = StackPanel(0).apply { border = JBUI.Borders.empty(4, 0, 10, 0) }
         val button = PiButton(
@@ -1186,6 +1239,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         )
         button.addActionListener {
             visibleLimit += VISIBLE_PAGE_SIZE
+            visibleLineBudget += PAGE_LINE_BUDGET
             rebuildTranscript()
         }
         row.add(JPanel(java.awt.FlowLayout(java.awt.FlowLayout.CENTER, 0, 0)).apply {
@@ -1198,6 +1252,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     private fun appendMessage(message: PiMessage) {
         messages.add(message)
         visibleLimit++
+        visibleLineBudget += renderedLineCost(message).coerceAtLeast(1)
         editsPanel.update(messages)
         showTranscript()
         // Insert before the live streaming bubble so ordering stays chronological.
@@ -2110,6 +2165,15 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         private const val CARD_EMPTY = "empty"
         private const val CARD_CHAT = "chat"
         private const val VISIBLE_PAGE_SIZE = 60
+
+        /**
+         * How many lines of message content the window may lay out initially, and how much a
+         * "load earlier" click adds. ~130µs per line of HTML parse+layout puts 2000 lines at a
+         * roughly quarter-second one-time cost on switch; a heavy session before this budget
+         * measured 4.7s of frozen EDT.
+         */
+        private const val INITIAL_LINE_BUDGET = 2_000
+        private const val PAGE_LINE_BUDGET = 4_000
 
         /** Long enough to absorb a burst of session switches, short enough to stay invisible. */
         private const val EAGER_START_DEBOUNCE_MS = 250

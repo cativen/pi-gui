@@ -40,7 +40,10 @@ class CodeBlock(
     private val rendered: String = clip(fullCode)
 
     private val header: JPanel = buildHeader()
-    private val body = HtmlBlock(CodeHighlighter.toHtml(project, language, rendered))
+    private val body = HtmlBlock(
+        CodeHighlighter.toHtml(project, language, rendered),
+        monospaceText = rendered,
+    )
 
     private val bodyHolder = object : JPanel(BorderLayout()) {
         override fun paintComponent(g: Graphics) {

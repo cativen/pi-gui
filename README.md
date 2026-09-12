@@ -120,7 +120,7 @@ src/main/kotlin/dev/pi/gui/
 ## Development
 
 ```bash
-./gradlew test          # 238 unit + headless UI tests
+./gradlew test          # 284 unit + headless UI tests
 ./gradlew runIde        # sandbox IDE with the plugin loaded
 ./gradlew verifyPlugin  # JetBrains plugin verifier
 ./gradlew buildPlugin   # distributable zip
