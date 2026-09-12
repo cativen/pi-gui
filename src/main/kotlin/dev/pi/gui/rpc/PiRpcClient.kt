@@ -265,11 +265,21 @@ class PiRpcClient(
         running.set(false)
         val proc = process ?: return
         try { writer?.close() } catch (ignored: IOException) {}
-        proc.destroy()
-        // Give pi a moment to flush its session file before escalating.
-        Thread {
-            if (!proc.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)) proc.destroyForcibly()
-        }.apply { isDaemon = true }.start()
+        Thread({
+            try {
+                // Graceful first: closing stdin asks pi to exit, giving it time to flush the
+                // session file.
+                if (!proc.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) {
+                    // pi did not exit: kill the whole tree. On Windows pi runs as
+                    // pi.cmd → cmd.exe → node (→ MCP servers), and destroying only the
+                    // wrapper orphans node and everything under it — leaked trees are what
+                    // make the IDE grind after a few session switches.
+                    ProcessTree.killTree(proc)
+                }
+            } catch (e: Throwable) {
+                log.debug("Failed stopping pi process", e)
+            }
+        }, "pi-rpc-stop").apply { isDaemon = true }.start()
     }
 
     fun collectedStderr(): String = synchronized(stderrBuffer) { stderrBuffer.toString() }
