@@ -38,6 +38,12 @@ class PiSettings : PersistentStateComponent<PiSettings.State> {
         var chatFontSize: Int = 0,
         var themeMode: String = ThemeMode.SYSTEM.name,
         var language: String = UiLanguage.SIMPLIFIED_CHINESE.tag,
+        /** Last provider chosen in the chat footer; empty means "whatever pi starts with". */
+        var activeProvider: String = "",
+        /** Last model id chosen for [activeProvider]. */
+        var activeModel: String = "",
+        /** Last thinking level chosen in the chat footer. */
+        var activeThinking: String = "",
     )
 
     private var state = State()
@@ -81,6 +87,18 @@ class PiSettings : PersistentStateComponent<PiSettings.State> {
     var language: UiLanguage
         get() = UiLanguage.fromTag(state.language)
         set(value) { state.language = value.tag }
+
+    var activeProvider: String
+        get() = state.activeProvider
+        set(value) { state.activeProvider = value }
+
+    var activeModel: String
+        get() = state.activeModel
+        set(value) { state.activeModel = value }
+
+    var activeThinking: String
+        get() = state.activeThinking
+        set(value) { state.activeThinking = value }
 
     /** Notified after the settings dialog applies changes, so open panels can re-render. */
     fun addChangeListener(listener: () -> Unit) { listeners.add(listener) }

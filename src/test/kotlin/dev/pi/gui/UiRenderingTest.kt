@@ -197,6 +197,53 @@ class UiRenderingTest : BasePlatformTestCase() {
         assertTrue("button should be compact, was ${button.height}px tall", button.height < 40)
     }
 
+    /**
+     * Regression: the send button once carried a fixed 28×28 preferred size, smaller than its
+     * 16px icon plus the button's own padding, so the glyph was clipped. Icon-only buttons must
+     * always report room for icon + border insets.
+     */
+    fun testIconOnlyPiButtonAlwaysFitsItsIcon() {
+        val button = dev.pi.gui.ui.components.PiButton(
+            null, com.intellij.icons.AllIcons.Actions.Execute, dev.pi.gui.ui.components.PiButton.Style.PRIMARY,
+        )
+        val pref = button.preferredSize
+        assertTrue(
+            "width ${pref.width} must fit the ${button.icon.iconWidth}px icon plus padding",
+            pref.width >= button.icon.iconWidth + button.insets.left + button.insets.right,
+        )
+        assertTrue(
+            "height ${pref.height} must fit the ${button.icon.iconHeight}px icon plus padding",
+            pref.height >= button.icon.iconHeight + button.insets.top + button.insets.bottom,
+        )
+        assertTrue(pref.height >= com.intellij.util.ui.JBUI.scale(24))
+    }
+
+    /**
+     * Regression: `setRunning` relabelled the icon-only send button with text, which the old
+     * fixed square clipped. Running state must swap the tooltip only, and both footer buttons
+     * must stay self-sized with no fixed-size override.
+     */
+    fun testChatFooterButtonsStayIconOnlyAndSelfSized() {
+        val panel = dev.pi.gui.ui.ChatPanel(project)
+        try {
+            panel.setRunningForTest(true)
+            val send = panel.sendButtonForTest()
+            val stop = panel.stopButtonForTest()
+            assertTrue("running state must not relabel the icon-only send button", send.text.isNullOrBlank())
+            assertTrue(stop.isVisible)
+            listOf(send, stop).forEach { button ->
+                val pref = button.preferredSize
+                assertTrue(
+                    "width ${pref.width} must fit the icon",
+                    pref.width >= button.icon.iconWidth + button.insets.left + button.insets.right,
+                )
+                assertEquals("maximum must track the adaptive preferred size", pref, button.maximumSize)
+            }
+        } finally {
+            panel.dispose()
+        }
+    }
+
     fun testRoundedBorderReportsInsetsAndPaints() {
         val border = dev.pi.gui.ui.components.RoundedBorder(
             colorProvider = { java.awt.Color.RED },

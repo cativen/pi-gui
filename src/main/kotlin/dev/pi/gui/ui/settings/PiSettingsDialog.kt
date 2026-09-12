@@ -18,6 +18,7 @@ import javax.swing.JComponent
 class PiSettingsDialog(project: Project?) : DialogWrapper(project, true) {
 
     private val general = GeneralSettingsPanel()
+    private val providers = ProvidersSettingsPanel(project)
     private val skills = SkillsSettingsPanel(project)
     private val plugins = PluginsSettingsPanel(project)
     private val cli = CliSettingsPanel()
@@ -28,13 +29,15 @@ class PiSettingsDialog(project: Project?) : DialogWrapper(project, true) {
     }
 
     override fun createCenterPanel(): JComponent {
-        val tabs = JBTabbedPane()
+        // Tabs on the left read like the sidebar navigation of the reference settings page.
+        val tabs = JBTabbedPane(javax.swing.JTabbedPane.LEFT)
         tabs.addTab(PiBundle.message("settings.tab.general"), general)
+        tabs.addTab(PiBundle.message("settings.tab.providers"), providers)
         tabs.addTab(PiBundle.message("settings.tab.skills"), skills)
         tabs.addTab(PiBundle.message("settings.tab.plugins"), plugins)
         tabs.addTab(PiBundle.message("settings.tab.cli"), cli)
         tabs.border = JBUI.Borders.empty()
-        tabs.preferredSize = Dimension(JBUI.scale(560), JBUI.scale(480))
+        tabs.preferredSize = Dimension(JBUI.scale(680), JBUI.scale(520))
         return tabs
     }
 

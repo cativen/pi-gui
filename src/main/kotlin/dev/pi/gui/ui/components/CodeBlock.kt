@@ -79,7 +79,7 @@ class CodeBlock(
         row.add(
             JBLabel(language?.lowercase() ?: "text").apply {
                 foreground = PiTheme.mutedFg()
-                font = font.deriveFont(font.size2D - 1f)
+                font = PiTheme.monoFont().deriveFont(font.size2D - 1f)
             },
             BorderLayout.WEST,
         )

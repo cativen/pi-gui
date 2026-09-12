@@ -10,6 +10,8 @@ import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.actionSystem.Toggleable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.wm.ToolWindow
+import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.ui.OnePixelSplitter
 import dev.pi.gui.i18n.PiBundle
 import dev.pi.gui.settings.PiSettings
@@ -58,6 +60,18 @@ class PiMainPanel(private val project: Project) : JPanel(BorderLayout()), Dispos
 
         PiSettings.getInstance().addChangeListener(settingsListener)
         sessions.refresh()
+
+        // Every time the tool window is opened, the chat footer should already show the last
+        // provider and its models: revive a dead agent on show, which repopulates the combos
+        // and restores the remembered selection.
+        project.messageBus.connect(this).subscribe(
+            ToolWindowManagerListener.TOPIC,
+            object : ToolWindowManagerListener {
+                override fun toolWindowShown(id: String, toolWindow: ToolWindow) {
+                    if (id == PiToolWindowFactory.TOOL_WINDOW_ID) chat.ensureAgentRunning()
+                }
+            },
+        )
     }
 
     private fun rebuildToolbar() {
@@ -121,7 +135,10 @@ class PiMainPanel(private val project: Project) : JPanel(BorderLayout()), Dispos
         return JPanel(BorderLayout()).apply {
             isOpaque = true
             background = PiTheme.surfaceBg
-            border = com.intellij.util.ui.JBUI.Borders.customLineBottom(PiTheme.toolBorder)
+            border = com.intellij.util.ui.JBUI.Borders.compound(
+                com.intellij.util.ui.JBUI.Borders.customLineBottom(PiTheme.toolBorder),
+                com.intellij.util.ui.JBUI.Borders.empty(5, 8, 5, 8),
+            )
             add(toolbar.component, BorderLayout.WEST)
         }
     }

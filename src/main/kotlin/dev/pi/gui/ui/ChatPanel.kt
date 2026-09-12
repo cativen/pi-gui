@@ -28,6 +28,7 @@ import dev.pi.gui.model.Attachment
 import dev.pi.gui.model.ModelOption
 import dev.pi.gui.model.PiMessage
 import dev.pi.gui.model.SessionInfo
+import dev.pi.gui.providers.ProvidersRegistry
 import dev.pi.gui.rpc.PiJson
 import dev.pi.gui.rpc.PiRpcClient
 import dev.pi.gui.rpc.StreamingAssistant
@@ -93,12 +94,20 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
             super.paste()
         }
     }
+    /**
+     * Icon-only footer buttons. They size themselves from the icon plus [PiButton]'s padding —
+     * a fixed square here once clipped the icon (16px icon + 20px padding > 28px).
+     */
     private val sendButton = PiButton(
-        PiBundle.message("chat.send"), AllIcons.Actions.Execute, PiButton.Style.PRIMARY,
-    )
+        null, AllIcons.Actions.Execute, PiButton.Style.PRIMARY,
+    ).apply {
+        toolTipText = PiBundle.message("chat.send")
+    }
     private val stopButton = PiButton(
-        PiBundle.message("chat.stop"), AllIcons.Actions.Suspend, PiButton.Style.SECONDARY,
-    )
+        null, AllIcons.Actions.Suspend, PiButton.Style.SECONDARY,
+    ).apply {
+        toolTipText = PiBundle.message("chat.stop")
+    }
     private val statusLabel = JBLabel(" ")
     private val branchLabel = JBLabel("")
 
@@ -122,8 +131,42 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     private var commandAnchor: JComponent? = null
 
     private val editsPanel = EditsPanel(project)
+    private val providerCombo = JComboBox<ProviderOption>()
     private val modelCombo = JComboBox<ModelOption>()
     private val thinkingCombo = JComboBox<String>()
+
+    /** Every model the agent offers, unfiltered; the model combo shows one provider's slice. */
+    private var allModels: List<ModelOption> = emptyList()
+
+    /** Friendly names for imported (`ccswitch-*`) providers, refreshed with the model list. */
+    private var importedProviderLabels: Map<String, String> = emptyMap()
+
+    /** Set once the saved provider/model selection has been (or decided not to be) restored. */
+    private var restoredForClient: PiRpcClient? = null
+    private var lastLiveProvider: String? = null
+    private var lastLiveModel: String? = null
+    private var lastLiveThinking: String? = null
+
+    /** True while a `pi --mode rpc` process is being spawned; collapses concurrent starts. */
+    private var agentStarting = false
+
+    /** Bumped every time a start actually begins spawning; stale landings stand down. */
+    private var startEpoch = 0
+
+    /**
+     * Set when the agent is stopped while a start is still in flight: the landing client is
+     * discarded and, when another start is wanted, a fresh one is spawned for the new session.
+     */
+    private var discardInFlightStart = false
+
+    /** Start requests waiting for an in-flight start; all see the same client (or null). */
+    private val waitingForStart = ArrayDeque<(PiRpcClient?) -> Unit>()
+
+    /**
+     * Fingerprint of pi's provider files when the running agent started. pi reads models.json
+     * once per process, so a registry change can only reach a live agent through a restart.
+     */
+    private var agentProvidersFingerprint: String? = null
 
     private val messages = mutableListOf<PiMessage>()
     private val streaming = StreamingAssistant()
@@ -156,6 +199,9 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         buildUi()
         showEmptyState()
         tickTimer.start()
+        // Opening the tool window should greet the user with the remembered provider and its
+        // models, not empty combos; boot the agent quietly in the background.
+        ensureAgentRunning()
     }
 
     // ---------------------------------------------------------------- UI setup
@@ -260,10 +306,10 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     private fun buildComposer(): JComponent {
         val composer = JPanel(BorderLayout()).apply {
             isOpaque = true
-            background = PiTheme.surfaceBg
+            background = PiTheme.chatBg
             border = JBUI.Borders.compound(
                 JBUI.Borders.customLineTop(PiTheme.toolBorder),
-                JBUI.Borders.empty(8, 10, 8, 10),
+                JBUI.Borders.empty(9, 10, 8, 10),
             )
         }
 
@@ -295,7 +341,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                 try {
                     g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
                     g2.color = PiTheme.inputBg
-                    val a = JBUI.scale(10)
+                    val a = JBUI.scale(8)
                     g2.fillRoundRect(0, 0, width, height, a, a)
                 } finally {
                     g2.dispose()
@@ -304,11 +350,11 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         }.apply {
             isOpaque = false
             border = RoundedBorder(
-                colorProvider = { if (input.hasFocus()) PiTheme.accent else PiTheme.buttonBorder },
-                arc = 10,
-                padding = JBUI.insets(6, 8),
+                colorProvider = { if (input.hasFocus()) PiTheme.accent else PiTheme.toolBorder },
+                arc = 8,
+                padding = JBUI.insets(8, 10),
             )
-            preferredSize = Dimension(100, JBUI.scale(78))
+            preferredSize = Dimension(100, JBUI.scale(84))
             add(inputScroll, BorderLayout.CENTER)
         }
         input.addFocusListener(object : java.awt.event.FocusAdapter() {
@@ -602,11 +648,21 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         modelCombo.addActionListener {
             if (suppressModelEvents) return@addActionListener
             val option = modelCombo.selectedItem as? ModelOption ?: return@addActionListener
-            rpc?.setModel(option.provider, option.id) { response ->
-                if (response.get("success")?.asBoolean != true) {
-                    onEdt { setStatus("Could not switch model: ${response.get("error")?.asStringOrNull() ?: "unknown error"}") }
-                }
-            }
+            applySelectionToAgent(option)
+        }
+
+        providerCombo.toolTipText = PiBundle.message("chat.provider")
+        providerCombo.isEnabled = false
+        providerCombo.preferredSize = Dimension(JBUI.scale(150), JBUI.scale(28))
+        providerCombo.minimumSize = Dimension(JBUI.scale(110), JBUI.scale(28))
+        providerCombo.maximumSize = Dimension(JBUI.scale(190), JBUI.scale(28))
+        providerCombo.renderer = placeholderRenderer(PiBundle.message("chat.provider"))
+        providerCombo.addActionListener {
+            if (suppressModelEvents) return@addActionListener
+            val option = providerCombo.selectedItem as? ProviderOption ?: return@addActionListener
+            val pick = selectProvider(option.id, PiSettings.getInstance().activeModel.takeIf { it.isNotBlank() })
+                ?: return@addActionListener
+            applySelectionToAgent(pick)
         }
 
         thinkingCombo.toolTipText = PiBundle.message("chat.thinking")
@@ -618,6 +674,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         thinkingCombo.addActionListener {
             if (suppressModelEvents) return@addActionListener
             val level = thinkingCombo.selectedItem as? String ?: return@addActionListener
+            PiSettings.getInstance().activeThinking = level
             rpc?.setThinkingLevel(level)
         }
 
@@ -631,6 +688,8 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         }
 
         row.add(attachButton)
+        row.add(Box.createHorizontalStrut(JBUI.scale(6)))
+        row.add(providerCombo)
         row.add(Box.createHorizontalStrut(JBUI.scale(6)))
         row.add(modelCombo)
         row.add(Box.createHorizontalStrut(JBUI.scale(6)))
@@ -953,7 +1012,8 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     /** `/reload` re-reads extensions, skills and prompts — which is what a fresh process does. */
     private fun reloadAgent() {
         val hadAgent = rpc?.isRunning == true
-        stopAgent()
+        // A restart follows immediately; queued start results survive it.
+        stopAgent(expectRestart = true)
         commandRegistry.invalidate()
         if (!hadAgent) {
             appendMessage(PiMessage.Notice(PiBundle.message("command.reload.done")))
@@ -1017,9 +1077,10 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     // ------------------------------------------------------------ session load
 
-    /** Show an existing session's transcript, read from disk. The agent is not started yet. */
+    /** Show an existing session's transcript, read from disk. */
     fun loadSession(info: SessionInfo) {
-        stopAgent()
+        // A restart is coming right away for the new session; queued start results survive it.
+        stopAgent(expectRestart = true)
         session = info
         messages.clear()
         visibleLimit = VISIBLE_PAGE_SIZE
@@ -1035,11 +1096,15 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                 setStatus(statusSummary())
             }
         }
+        // Resuming binds a fresh process to this session; having it ready repopulates the
+        // footer combos before the first prompt.
+        ensureAgentRunning()
     }
 
     /** Discard the current conversation and begin a fresh one in this project. */
     fun startNewSession() {
-        stopAgent()
+        // A restart is coming right away; queued start results survive it.
+        stopAgent(expectRestart = true)
         commandPopup.hide()
         // Skills and extensions may have been added since; re-ask rather than serve a stale list.
         commandRegistry.invalidate()
@@ -1050,6 +1115,8 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         showEmptyState()
         setStatus(PiBundle.message("status.newSession"))
         input.requestFocusInWindow()
+        // The fresh chat should immediately show (and run with) the remembered provider/model.
+        ensureAgentRunning()
     }
 
     private fun showEmptyState() {
@@ -1226,18 +1293,38 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     // ------------------------------------------------------------ agent process
 
-    /** Start `pi --mode rpc`, resuming the loaded session when there is one. */
-    private fun startAgent(onReady: (PiRpcClient?) -> Unit) {
-        val executable = PiLocator.findPi()
-        if (executable == null) {
-            Messages.showErrorDialog(
-                project,
-                "The pi CLI was not found.\n\nInstall it with:\n    npm i -g @earendil-works/pi-coding-agent\n\n" +
-                    "If it is installed somewhere unusual, set the path in Settings → Tools → Pi GUI.",
-                "Pi Not Found",
-            )
-            onReady(null)
-            return
+    /**
+     * Bring the footer to life without waiting for the first prompt. Starts the agent in the
+     * background when it is not running, which repopulates the provider/model combos and
+     * restores the remembered selection. Called when the tool window opens or is shown again.
+     */
+    fun ensureAgentRunning() {
+        if (disposed || agentStarting) return
+        if (rpc?.isRunning == true) return
+        startAgent(quiet = true)
+    }
+
+    /**
+     * Start `pi --mode rpc`, resuming the loaded session when there is one.
+     *
+     * Concurrent callers coalesce into one process: while a start is in flight, later callers
+     * only queue their [onReady] and receive the same client (or null). [quiet] keeps failures
+     * on the status line — for background starts — while user-initiated starts raise a dialog.
+     */
+    private fun startAgent(quiet: Boolean = false, onReady: (PiRpcClient?) -> Unit = {}) {
+        rpc?.takeIf { it.isRunning }?.let { live -> onReady(live); return }
+
+        waitingForStart.addLast(onReady)
+        if (agentStarting) return
+        agentStarting = true
+        startEpoch++
+        val epoch = startEpoch
+
+        /** Fail every queued waiter; the start they were waiting for will not happen. */
+        fun failQueued() {
+            agentStarting = false
+            discardInFlightStart = false
+            while (waitingForStart.isNotEmpty()) waitingForStart.removeFirst()(null)
         }
 
         val workDir = project.basePath?.let { File(it) }?.takeIf { it.isDirectory }
@@ -1245,6 +1332,24 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
         setStatus(PiBundle.message("status.startingPi"))
         ApplicationManager.getApplication().executeOnPooledThread {
+            // Discovery can end up asking a login shell where pi lives; keep that off the EDT.
+            val executable = PiLocator.findPi()
+            if (executable == null) {
+                onEdt {
+                    setStatus(PiBundle.message("status.piNotFound"))
+                    if (!quiet) {
+                        Messages.showErrorDialog(
+                            project,
+                            "The pi CLI was not found.\n\nInstall it with:\n    npm i -g @earendil-works/pi-coding-agent\n\n" +
+                                "If it is installed somewhere unusual, set the path in Settings → Tools → Pi GUI.",
+                            "Pi Not Found",
+                        )
+                    }
+                    failQueued()
+                }
+                return@executeOnPooledThread
+            }
+
             val client = PiRpcClient(
                 piExecutable = executable,
                 workingDir = workDir,
@@ -1259,24 +1364,44 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                 log.warn("Failed to start pi", e)
                 onEdt {
                     setStatus("Failed to start pi")
-                    Messages.showErrorDialog(project, "Could not start pi:\n${e.message}", "Pi GUI")
-                    onReady(null)
+                    if (!quiet) {
+                        Messages.showErrorDialog(project, "Could not start pi:\n${e.message}", "Pi GUI")
+                    }
+                    failQueued()
                 }
                 return@executeOnPooledThread
             }
             onEdt {
-                if (disposed) { client.stop(); return@onEdt }
+                if (epoch != startEpoch) {
+                    // Superseded by a newer start (stop + restart raced this landing).
+                    client.stop()
+                    return@onEdt
+                }
+                val discarded = discardInFlightStart
+                discardInFlightStart = false
+                agentStarting = false
+                if (disposed || discarded) {
+                    // Stopped while booting (session switch, /quit, disposal): nobody wants
+                    // this client. Waiters that still expect an agent get a fresh start below.
+                    client.stop()
+                    if (!disposed && discarded && waitingForStart.isNotEmpty()) startAgent(quiet = true)
+                    return@onEdt
+                }
                 rpc = client
-                onReady(client)
+                agentProvidersFingerprint = providersFingerprint()
+                // A new process reads its own defaults; until get_state answers nothing is live.
+                lastLiveProvider = null
+                lastLiveModel = null
+                lastLiveThinking = null
+                while (waitingForStart.isNotEmpty()) waitingForStart.removeFirst()(client)
                 refreshModels(client)
-                refreshState(client)
                 // A live agent is the authoritative source, and costs nothing extra to ask.
                 commandRegistry.refreshFrom(client) { if (!disposed) updateCommandPopup() }
             }
         }
     }
 
-    private fun stopAgent() {
+    private fun stopAgent(expectRestart: Boolean = false) {
         repaintTimer.stop()
         rpc?.stop()
         rpc = null
@@ -1284,11 +1409,90 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         streamingComponent = null
         setRunning(false)
         phase = AgentPhase.Idle
+        providerCombo.isEnabled = false
         modelCombo.isEnabled = false
         thinkingCombo.isEnabled = false
+        if (agentStarting) {
+            // A start is still in flight; its client belongs to the era being stopped now.
+            if (expectRestart) {
+                discardInFlightStart = true
+            } else {
+                startEpoch++
+                agentStarting = false
+                discardInFlightStart = false
+                while (waitingForStart.isNotEmpty()) waitingForStart.removeFirst()(null)
+            }
+        }
+    }
+
+    /** Friendly label for a pi provider id: imported ones carry their cc-switch name. */
+    private fun providerLabel(id: String): String =
+        importedProviderLabels[id] ?: id.removePrefix(ProvidersRegistry.ID_PREFIX)
+
+    /** Change marker over the registry sidecar and pi's models.json. */
+    private fun providersFingerprint(): String {
+        val registry = ProvidersRegistry.default()
+        return listOf(registry.sidecarFile(), registry.modelsFile())
+            .joinToString("|") { "${it.length()}:${it.lastModified()}" }
+    }
+
+    /** Provider ids currently offered by the footer combo. */
+    private fun providerIds(): List<String> {
+        val comboModel = providerCombo.model
+        return (0 until comboModel.size).map { comboModel.getElementAt(it).id }
+    }
+
+    /**
+     * Points the footer at one provider: the model combo is refiltered to its models and the
+     * preferred (or first) model is selected. Returns the selected model, or null when the
+     * provider is unknown.
+     */
+    private fun selectProvider(provider: String, preferredModel: String?): ModelOption? {
+        val models = allModels.filter { it.provider == provider }
+        if (models.isEmpty()) return null
+        suppressModelEvents = true
+        providerCombo.selectedItem = providerCombo.model.let { m ->
+            (0 until m.size).map { m.getElementAt(it) }.firstOrNull { it.id == provider }
+        }
+        modelCombo.model = DefaultComboBoxModel(models.toTypedArray())
+        val pick = models.firstOrNull { it.id == preferredModel } ?: models.first()
+        modelCombo.selectedItem = pick
+        suppressModelEvents = false
+        return pick
+    }
+
+    /** Applies a provider/model choice to the live agent and remembers it for next time. */
+    private fun applySelectionToAgent(option: ModelOption) {
+        val settings = PiSettings.getInstance()
+        settings.activeProvider = option.provider
+        settings.activeModel = option.id
+        rpc?.setModel(option.provider, option.id) { response ->
+            if (response.get("success")?.asBoolean == true) {
+                onEdt {
+                    lastLiveProvider = option.provider
+                    lastLiveModel = option.id
+                }
+            } else {
+                onEdt {
+                    setStatus("Could not switch model: ${response.get("error")?.asStringOrNull() ?: "unknown error"}")
+                    // The agent kept its previous model; line the combos back up with it.
+                    rpc?.let { refreshState(it) }
+                }
+            }
+        }
+    }
+
+    /** Provider entry in the footer combo; carries the friendly label shown to the user. */
+    private data class ProviderOption(val id: String, val label: String) {
+        override fun toString(): String = label
     }
 
     private fun refreshModels(client: PiRpcClient) {
+        // Reader thread: pick up friendly names for imported providers before hopping to the EDT.
+        importedProviderLabels = runCatching { ProvidersRegistry.default().list() }
+            .getOrDefault(emptyList())
+            .associate { it.id to it.name }
+
         client.getAvailableModels { response ->
             val models = response.getAsJsonObjectOrNull("data")
                 ?.let { PiJson.asArray(it.get("models")) }
@@ -1298,13 +1502,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                     val id = obj.get("id")?.asStringOrNull() ?: return@mapNotNull null
                     ModelOption(provider, id, obj.get("reasoning")?.asBoolean ?: false)
                 } ?: emptyList()
-            onEdt {
-                if (models.isEmpty()) return@onEdt
-                suppressModelEvents = true
-                modelCombo.model = DefaultComboBoxModel(models.toTypedArray())
-                modelCombo.isEnabled = true
-                suppressModelEvents = false
-            }
+            onEdt { applyModelList(models, client) }
         }
         client.getAvailableThinkingLevels { response ->
             val levels = response.getAsJsonObjectOrNull("data")
@@ -1315,7 +1513,78 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                 suppressModelEvents = true
                 thinkingCombo.model = DefaultComboBoxModel(levels.toTypedArray())
                 thinkingCombo.isEnabled = true
+                PiSettings.getInstance().activeThinking
+                    .takeIf { saved -> saved.isNotBlank() && levels.contains(saved) }
+                    ?.let { thinkingCombo.selectedItem = it }
                 suppressModelEvents = false
+            }
+        }
+    }
+
+    /**
+     * Populates the footer combos from a model list and restores the remembered selection.
+     *
+     * Runs on the EDT with the parsed `get_available_models` payload. An empty list means the
+     * agent offered nothing to choose from; the combos stay as they are and live state is
+     * still synced (thinking level, session file).
+     */
+    private fun applyModelList(models: List<ModelOption>, client: PiRpcClient) {
+        if (models.isEmpty()) {
+            refreshState(client)
+            return
+        }
+        allModels = models
+        val settings = PiSettings.getInstance()
+
+        suppressModelEvents = true
+        providerCombo.model = DefaultComboBoxModel(
+            models.map { it.provider }.distinct()
+                .map { ProviderOption(it, providerLabel(it)) }
+                .toTypedArray()
+        )
+        providerCombo.isEnabled = true
+        suppressModelEvents = false
+
+        val savedProvider = settings.activeProvider.takeIf { p -> providerIds().contains(p) }
+        selectProvider(savedProvider ?: models.first().provider, settings.activeModel.takeIf { it.isNotBlank() })
+        // selectProvider() refilled the model combo with one provider's slice; without this it
+        // stays disabled from the last stopAgent()/onExit() and looks dead even though the agent
+        // is live and switching would work.
+        modelCombo.isEnabled = true
+
+        // First contact with a fresh agent: make the remembered selection take effect.
+        // The state query only goes out once this push has landed — a get_state answered
+        // before the set_model would report the startup default and clobber the very
+        // selection it is meant to confirm.
+        val firstContact = restoredForClient !== client
+        restoredForClient = client
+        val selected = modelCombo.selectedItem as? ModelOption
+        val hasSavedChoice = settings.activeProvider.isNotBlank() && selected != null &&
+            selected.provider == settings.activeProvider
+        val needsSwitch = selected != null &&
+            (lastLiveProvider == null || lastLiveModel == null ||
+                selected.provider != lastLiveProvider || selected.id != lastLiveModel)
+        // A resumed session keeps the model it was recorded with; a fresh chat runs with
+        // the remembered provider/model.
+        val restore = selected?.takeIf {
+            firstContact && session == null && hasSavedChoice && needsSwitch
+        }
+        if (restore != null) {
+            client.setModel(restore.provider, restore.id) { response ->
+                onEdt {
+                    if (response.get("success")?.asBoolean != true) {
+                        setStatus("Could not switch model: ${response.get("error")?.asStringOrNull() ?: "unknown error"}")
+                    }
+                }
+                refreshState(client)
+            }
+        } else {
+            refreshState(client)
+        }
+        if (firstContact) {
+            val savedThinking = settings.activeThinking
+            if (savedThinking.isNotBlank() && savedThinking != lastLiveThinking) {
+                client.setThinkingLevel(savedThinking)
             }
         }
     }
@@ -1331,6 +1600,11 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
             onEdt {
                 suppressModelEvents = true
                 if (provider != null && modelId != null) {
+                    // Refilter when the live provider is not the one currently displayed.
+                    val showing = (providerCombo.selectedItem as? ProviderOption)?.id
+                    if (showing != provider && providerIds().contains(provider)) {
+                        selectProvider(provider, modelId)
+                    }
                     val target = ModelOption(provider, modelId)
                     val model2 = modelCombo.model
                     for (i in 0 until model2.size) {
@@ -1343,6 +1617,24 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                 }
                 level?.let { thinkingCombo.selectedItem = it }
                 suppressModelEvents = false
+
+                // Once the remembered selection has been restored, the live agent is the source
+                // of truth: whatever it actually runs with becomes the remembered default.
+                val settings = PiSettings.getInstance()
+                if (restoredForClient === rpc) {
+                    if (provider != null && modelId != null &&
+                        (settings.activeProvider != provider || settings.activeModel != modelId)
+                    ) {
+                        settings.activeProvider = provider
+                        settings.activeModel = modelId
+                    }
+                    level?.takeIf { it.isNotBlank() && it != settings.activeThinking }?.let {
+                        settings.activeThinking = it
+                    }
+                }
+                lastLiveProvider = provider
+                lastLiveModel = modelId
+                lastLiveThinking = level
 
                 // A brand-new session gets its file only once pi creates it.
                 if (session == null && sessionFile != null) {
@@ -1368,6 +1660,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                 streaming.end()
                 flushStreaming()
                 rpc = null
+                providerCombo.isEnabled = false
                 modelCombo.isEnabled = false
                 thinkingCombo.isEnabled = false
                 if (exitCode != 0) {
@@ -1576,7 +1869,9 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     private fun setRunning(running: Boolean) {
         isRunning = running
         sendButton.isEnabled = true
-        sendButton.text = if (running) PiBundle.message("chat.queue") else PiBundle.message("chat.send")
+        // Icon-only button: relabelling here used to squeeze icon + text into the old fixed
+        // 28px square and clip both. The tooltip carries the queue/send wording instead.
+        sendButton.toolTipText = PiBundle.message(if (running) "chat.queue" else "chat.send")
         stopButton.isVisible = running
     }
 
@@ -1636,12 +1931,43 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         input.caretColor = PiTheme.textFg()
         input.emptyText.text = PiBundle.message("chat.input.placeholder")
 
-        sendButton.text = if (isRunning) PiBundle.message("chat.queue") else PiBundle.message("chat.send")
-        stopButton.text = PiBundle.message("chat.stop")
+        sendButton.toolTipText = if (isRunning) PiBundle.message("chat.queue") else PiBundle.message("chat.send")
+        stopButton.toolTipText = PiBundle.message("chat.stop")
+        providerCombo.toolTipText = PiBundle.message("chat.provider")
         modelCombo.toolTipText = PiBundle.message("chat.model")
         thinkingCombo.toolTipText = PiBundle.message("chat.thinking")
+        providerCombo.renderer = placeholderRenderer(PiBundle.message("chat.provider"))
         modelCombo.renderer = placeholderRenderer(PiBundle.message("chat.model.none"))
         thinkingCombo.renderer = placeholderRenderer(PiBundle.message("chat.thinking"))
+
+        // Provider data changed under us (import/edit/delete): the running agent read
+        // models.json at process start and cannot see new providers, so switching to them
+        // fails with "Model not found". Restart it — same as /reload — and refreshModels
+        // will apply the remembered selection to the fresh agent and its combos.
+        val settings = PiSettings.getInstance()
+        if (rpc?.isRunning == true && providersFingerprint() != agentProvidersFingerprint) {
+            agentProvidersFingerprint = providersFingerprint()
+            if (isRunning) {
+                appendMessage(PiMessage.Notice(PiBundle.message("chat.providers.pendingReload")))
+            } else {
+                reloadAgent()
+            }
+        } else {
+            // A provider enabled in the settings dialog takes effect here immediately.
+            settings.activeProvider.takeIf { it.isNotBlank() }?.let { provider ->
+                if (providerIds().contains(provider)) {
+                    val pick = selectProvider(provider, settings.activeModel.takeIf { it.isNotBlank() })
+                    if (pick != null && rpc?.isRunning == true &&
+                        (pick.provider != lastLiveProvider || pick.id != lastLiveModel)
+                    ) {
+                        rpc?.setModel(pick.provider, pick.id)
+                        settings.activeThinking.takeIf { it.isNotBlank() && it != lastLiveThinking }?.let {
+                            rpc?.setThinkingLevel(it)
+                        }
+                    }
+                }
+            }
+        }
 
         rebuildEmptyState()
         if (messages.isEmpty()) showEmptyState() else rebuildTranscript()
@@ -1704,6 +2030,25 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     fun commandRegistryForTest(): CommandRegistry = commandRegistry
 
     @org.jetbrains.annotations.TestOnly
+    fun providerComboForTest(): JComboBox<*> = providerCombo
+
+    @org.jetbrains.annotations.TestOnly
+    fun modelComboForTest(): JComboBox<*> = modelCombo
+
+    @org.jetbrains.annotations.TestOnly
+    fun sendButtonForTest(): dev.pi.gui.ui.components.PiButton = sendButton
+
+    @org.jetbrains.annotations.TestOnly
+    fun stopButtonForTest(): dev.pi.gui.ui.components.PiButton = stopButton
+
+    @org.jetbrains.annotations.TestOnly
+    fun setRunningForTest(running: Boolean) = setRunning(running)
+
+    /** Applies a parsed `get_available_models` payload exactly as the live path would. */
+    @org.jetbrains.annotations.TestOnly
+    fun applyModelsForTest(models: List<ModelOption>, client: PiRpcClient) = applyModelList(models, client)
+
+    @org.jetbrains.annotations.TestOnly
     fun insertCommandForTest(command: PiCommand) = insertCommand(command)
 
     @org.jetbrains.annotations.TestOnly
@@ -1742,7 +2087,6 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         commandPopup.hide()
         repaintTimer.stop()
         tickTimer.stop()
-        rpc?.stop()
-        rpc = null
+        stopAgent()
     }
 }

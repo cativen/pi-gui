@@ -21,6 +21,8 @@ dependencies {
     }
     // Bundled into the plugin: small, and avoids relying on platform internals.
     implementation("com.google.code.gson:gson:2.10.1")
+    // Reads cc-switch's SQLite store (~/.cc-switch/cc-switch.db) for provider import.
+    implementation("org.xerial:sqlite-jdbc:3.46.1.3")
 
     testImplementation("junit:junit:4.13.2")
 }

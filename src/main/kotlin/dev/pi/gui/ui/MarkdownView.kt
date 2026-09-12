@@ -13,6 +13,8 @@ import dev.pi.gui.ui.markdown.Markdown
 class MarkdownView(
     private val project: Project?,
     markdown: String = "",
+    /** Overrides prose text color — white inside the filled user bubble. */
+    private val fgOverride: java.awt.Color? = null,
 ) : StackPanel(2) {
 
     private var currentMarkdown: String? = null
@@ -28,7 +30,7 @@ class MarkdownView(
         Markdown.split(markdown).forEach { segment ->
             when (segment) {
                 is Markdown.Segment.Prose ->
-                    add(HtmlBlock(Markdown.proseToHtml(segment.markdown)))
+                    add(HtmlBlock(Markdown.proseToHtml(segment.markdown), fgOverride))
                 is Markdown.Segment.Code ->
                     add(CodeBlock(project, segment.language, segment.code))
             }

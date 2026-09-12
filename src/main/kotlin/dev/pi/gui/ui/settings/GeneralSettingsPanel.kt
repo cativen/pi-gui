@@ -51,7 +51,7 @@ class GeneralSettingsPanel : JPanel() {
 
     init {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = JBUI.Borders.empty(12, 16)
+        border = JBUI.Borders.empty(16, 18)
 
         ButtonGroup().apply {
             add(systemTheme); add(lightTheme); add(darkTheme)
@@ -60,36 +60,32 @@ class GeneralSettingsPanel : JPanel() {
             add(english); add(simplified); add(traditional)
         }
 
-        add(sectionTitle(PiBundle.message("settings.appearance")))
-        add(row(systemTheme, lightTheme, darkTheme))
+        val appearance = SettingsComponents.card(PiBundle.message("settings.appearance"))
+        appearance.add(row(systemTheme, lightTheme, darkTheme))
+        add(appearance)
         add(gap(14))
 
-        add(sectionTitle(PiBundle.message("settings.conversation")))
-        add(leftAligned(showThinking))
-        add(leftAligned(expandThinking))
-        add(leftAligned(expandToolCalls))
-        add(leftAligned(sendOnEnter))
-        add(gap(8))
-        add(fontSizeRow())
+        val conversation = SettingsComponents.card(PiBundle.message("settings.conversation"))
+        conversation.add(leftAligned(showThinking))
+        conversation.add(leftAligned(expandThinking))
+        conversation.add(leftAligned(expandToolCalls))
+        conversation.add(leftAligned(sendOnEnter))
+        conversation.add(gap(8))
+        conversation.add(fontSizeRow())
+        add(conversation)
         add(gap(14))
 
-        add(sectionTitle(PiBundle.message("settings.language")))
-        add(leftAligned(english, "en"))
-        add(leftAligned(simplified, "zh-CN"))
-        add(leftAligned(traditional, "zh-TW"))
+        val language = SettingsComponents.card(PiBundle.message("settings.language"))
+        language.add(leftAligned(english, "en"))
+        language.add(leftAligned(simplified, "zh-CN"))
+        language.add(leftAligned(traditional, "zh-TW"))
+        add(language)
 
         add(Box.createVerticalGlue())
 
         fontSlider.addChangeListener { updateFontValueLabel() }
         reset()
     }
-
-    private fun sectionTitle(text: String): JComponentRow = JComponentRow(
-        JBLabel(text).apply {
-            font = font.deriveFont(Font.BOLD, font.size2D + 1f)
-            border = JBUI.Borders.emptyBottom(6)
-        }
-    )
 
     private fun leftAligned(component: Component, trailing: String? = null): JPanel =
         JPanel(BorderLayout()).apply {
@@ -218,15 +214,5 @@ class GeneralSettingsPanel : JPanel() {
             expandToolCalls.isSelected != settings.autoExpandToolCalls ||
             sendOnEnter.isSelected != settings.sendOnEnter ||
             fontSlider.value != (if (settings.chatFontSize > 0) settings.chatFontSize else PiTheme.defaultFontSize())
-    }
-
-    /** BoxLayout needs every child left-aligned; wrapping keeps that in one place. */
-    private class JComponentRow(child: Component) : JPanel(BorderLayout()) {
-        init {
-            isOpaque = false
-            alignmentX = LEFT_ALIGNMENT
-            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(28))
-            add(child, BorderLayout.WEST)
-        }
     }
 }

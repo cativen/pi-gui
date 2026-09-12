@@ -25,31 +25,29 @@ class CliSettingsPanel : JPanel(BorderLayout()) {
     private val extraArgsField = JBTextField()
 
     init {
-        border = JBUI.Borders.empty(12, 16)
+        border = JBUI.Borders.empty(16, 18)
 
         val detected = PiLocator.discover()
-        val detectedLabel = JBLabel(
+        val detectedLabel = SettingsComponents.hint(
             if (detected != null) PiBundle.message("settings.cli.detected", detected.absolutePath)
             else PiBundle.message("settings.cli.notFound")
         ).apply {
-            foreground = if (detected != null) PiTheme.mutedFg() else PiTheme.errorFg
+            if (detected == null) foreground = PiTheme.errorFg
         }
 
-        add(
-            FormBuilder.createFormBuilder()
-                .addLabeledComponent(JBLabel(PiBundle.message("settings.cli.path")), piPathField, 1, false)
-                .addComponentToRightColumn(detectedLabel, 0)
-                .addLabeledComponent(JBLabel(PiBundle.message("settings.cli.extraArgs")), extraArgsField, 1, false)
-                .addComponentToRightColumn(
-                    JBLabel(PiBundle.message("settings.cli.extraArgs.hint")).apply {
-                        foreground = PiTheme.mutedFg()
-                    },
-                    0,
-                )
-                .addComponentFillVertically(JPanel(), 0)
-                .panel,
-            BorderLayout.CENTER,
-        )
+        val card = SettingsComponents.card(PiBundle.message("settings.tab.cli"))
+        val form = FormBuilder.createFormBuilder()
+            .addLabeledComponent(JBLabel(PiBundle.message("settings.cli.path")), piPathField, 1, false)
+            .addComponentToRightColumn(detectedLabel, 0)
+            .addLabeledComponent(JBLabel(PiBundle.message("settings.cli.extraArgs")), extraArgsField, 1, false)
+            .addComponentToRightColumn(
+                SettingsComponents.hint(PiBundle.message("settings.cli.extraArgs.hint")),
+                0,
+            )
+            .panel.apply { isOpaque = false; alignmentX = LEFT_ALIGNMENT }
+        card.add(form)
+
+        add(card, BorderLayout.NORTH)
         reset()
     }
 

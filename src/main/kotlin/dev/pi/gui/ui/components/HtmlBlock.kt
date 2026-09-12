@@ -18,7 +18,11 @@ import javax.swing.text.html.HTMLEditorKit
  * through the root [View] rather than trusting `getPreferredSize`, which otherwise wants to lay
  * the whole paragraph out on a single line.
  */
-class HtmlBlock(html: String = "") : JEditorPane(), WidthAware {
+class HtmlBlock(
+    html: String = "",
+    /** Overrides the body/link color — e.g. white text inside the filled user bubble. */
+    private val fgOverride: java.awt.Color? = null,
+) : JEditorPane(), WidthAware {
 
     private var lastWidth = -1
     private var lastHeight = -1
@@ -53,9 +57,9 @@ class HtmlBlock(html: String = "") : JEditorPane(), WidthAware {
 
     private fun wrap(body: String): String {
         val font = PiTheme.uiFont()
-        val fg = PiTheme.toHex(PiTheme.textFg())
-        val link = PiTheme.toHex(PiTheme.linkFg())
-        val codeBg = PiTheme.toHex(PiTheme.codeBg())
+        val fg = PiTheme.toHex(fgOverride ?: PiTheme.textFg())
+        val link = PiTheme.toHex(fgOverride ?: PiTheme.linkFg())
+        val codeBg = PiTheme.toHex(if (fgOverride != null) PiTheme.userBubbleCodeBg else PiTheme.codeBg())
         val mono = PiTheme.monoFont().family
         val quoteBar = PiTheme.toHex(PiTheme.mutedFg())
         return """
@@ -73,6 +77,20 @@ class HtmlBlock(html: String = "") : JEditorPane(), WidthAware {
               hr { border: 0; border-top: 1px solid $quoteBar; }
             </style></head><body>$body</body></html>
         """.trimIndent()
+    }
+
+    /**
+     * The width the content wants when nothing forces it to wrap. Used by the user bubble to
+     * hug short messages instead of stretching to the transcript's full width.
+     */
+    fun naturalWidth(): Int {
+        return try {
+            val root: View = (ui as TextUI).getRootView(this)
+            root.setSize(Float.MAX_VALUE, Float.MAX_VALUE)
+            Math.ceil(root.getPreferredSpan(View.X_AXIS).toDouble()).toInt() + insets.left + insets.right
+        } catch (e: Exception) {
+            preferredSize.width
+        }
     }
 
     override fun heightForWidth(width: Int): Int {

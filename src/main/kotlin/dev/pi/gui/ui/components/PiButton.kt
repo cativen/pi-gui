@@ -102,7 +102,7 @@ class PiButton(
         val g2 = g.create() as Graphics2D
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            val arc = JBUI.scale(8)
+            val arc = JBUI.scale(6)
             fillColor()?.let {
                 g2.color = it
                 g2.fillRoundRect(0, 0, width, height, arc, arc)
@@ -119,7 +119,15 @@ class PiButton(
 
     override fun getPreferredSize(): Dimension {
         val base = super.getPreferredSize()
-        return Dimension(base.width, maxOf(base.height, JBUI.scale(24)))
+        // The UI delegate already includes border + icon + text; enforce the glyph fit explicitly
+        // so an icon-only button can never report less room than its icon needs (a clipped send
+        // button was exactly that: a fixed preferred size smaller than icon + padding).
+        val iconW = icon?.iconWidth ?: 0
+        val iconH = icon?.iconHeight ?: 0
+        return Dimension(
+            maxOf(base.width, iconW + insets.left + insets.right),
+            maxOf(base.height, iconH + insets.top + insets.bottom, JBUI.scale(24)),
+        )
     }
 
     /**

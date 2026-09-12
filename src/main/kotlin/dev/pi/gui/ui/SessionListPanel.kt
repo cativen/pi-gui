@@ -127,7 +127,7 @@ class SessionListPanel(private val project: Project) : JPanel(BorderLayout()) {
             hasFocus: Boolean,
         ) {
             if (value == null) return
-            border = JBUI.Borders.empty(4, 6)
+            border = JBUI.Borders.empty(6, 10)
             append(value.displayTitle(), SimpleTextAttributes.REGULAR_ATTRIBUTES)
             append(
                 "  ${format.format(Date(value.lastModified))}",

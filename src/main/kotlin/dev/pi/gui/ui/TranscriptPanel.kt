@@ -15,7 +15,7 @@ import javax.swing.Scrollable
 class TranscriptPanel : StackPanel(0), Scrollable {
 
     init {
-        border = JBUI.Borders.empty(8, 12)
+        border = JBUI.Borders.empty(12, 16)
     }
 
     override fun getPreferredScrollableViewportSize(): Dimension = preferredSize

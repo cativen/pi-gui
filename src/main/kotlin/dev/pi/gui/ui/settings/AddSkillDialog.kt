@@ -2,6 +2,7 @@ package dev.pi.gui.ui.settings
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
@@ -125,7 +126,9 @@ class AddSkillDialog(private val project: Project?) : DialogWrapper(project, tru
 
         ApplicationManager.getApplication().executeOnPooledThread {
             val outcome = runCatching { SkillsRegistry.search(query) }
-            ApplicationManager.getApplication().invokeLater {
+            // any(): this dialog is modal, so a default (non-modal) invokeLater from a pooled
+            // thread would be deferred until the dialog closes — results would never appear.
+            ApplicationManager.getApplication().invokeLater({
                 outcome
                     .onSuccess { found ->
                         found.forEach { model.addElement(it) }
@@ -142,7 +145,7 @@ class AddSkillDialog(private val project: Project?) : DialogWrapper(project, tru
                             PiBundle.message("skills.search.failed", error.message ?: "")
                         }
                     }
-            }
+            }, ModalityState.any())
         }
     }
 
@@ -166,7 +169,7 @@ class AddSkillDialog(private val project: Project?) : DialogWrapper(project, tru
                 override fun run(indicator: ProgressIndicator) {
                     indicator.isIndeterminate = true
                     val outcome = SkillsRegistry.install(selected.id, scope, project?.basePath)
-                    ApplicationManager.getApplication().invokeLater {
+                    ApplicationManager.getApplication().invokeLater({
                         if (outcome.success) {
                             installedAnything = true
                             statusLabel.text = PiBundle.message("skills.install.done", selected.name)
@@ -178,7 +181,7 @@ class AddSkillDialog(private val project: Project?) : DialogWrapper(project, tru
                             )
                             statusLabel.text = PiBundle.message("skills.install.failedShort")
                         }
-                    }
+                    }, ModalityState.any())
                 }
             }
         )

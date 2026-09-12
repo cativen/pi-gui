@@ -3,6 +3,7 @@ package dev.pi.gui.ui.settings
 import com.intellij.icons.AllIcons
 import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
@@ -264,14 +265,16 @@ class PluginsSettingsPanel(private val project: Project?) : JPanel(BorderLayout(
         ApplicationManager.getApplication().executeOnPooledThread {
             val installed = PackagesService.listInstalled(project?.basePath)
             val counts = PackagesService.summarize(installed)
-            ApplicationManager.getApplication().invokeLater {
+            // any(): see SkillsSettingsPanel.reload() — this panel lives in the modal settings
+            // dialog, so a default (non-modal) invokeLater would be deferred until it closes.
+            ApplicationManager.getApplication().invokeLater({
                 installedModel.clear()
                 installed.forEach { installedModel.addElement(it) }
                 summaryLabel.text = PiBundle.message(
                     "plugins.summary",
                     counts.packages, counts.extensions, counts.skills, counts.prompts, counts.themes,
                 )
-            }
+            }, ModalityState.any())
         }
     }
 
@@ -285,7 +288,7 @@ class PluginsSettingsPanel(private val project: Project?) : JPanel(BorderLayout(
 
         ApplicationManager.getApplication().executeOnPooledThread {
             val outcome = runCatching { PackagesRegistry.search(query) }
-            ApplicationManager.getApplication().invokeLater {
+            ApplicationManager.getApplication().invokeLater({
                 outcome
                     .onSuccess { found ->
                         found.forEach { resultsModel.addElement(it) }
@@ -298,7 +301,7 @@ class PluginsSettingsPanel(private val project: Project?) : JPanel(BorderLayout(
                     .onFailure {
                         statusLabel.text = PiBundle.message("plugins.search.failed", it.message ?: "")
                     }
-            }
+            }, ModalityState.any())
         }
     }
 
@@ -327,7 +330,7 @@ class PluginsSettingsPanel(private val project: Project?) : JPanel(BorderLayout(
                 override fun run(indicator: ProgressIndicator) {
                     indicator.isIndeterminate = true
                     val result = PackagesService.install(source, scope, project?.basePath)
-                    ApplicationManager.getApplication().invokeLater {
+                    ApplicationManager.getApplication().invokeLater({
                         if (result.success) {
                             statusLabel.text = PiBundle.message("plugins.install.done", source)
                             sourceField.text = ""
@@ -340,7 +343,7 @@ class PluginsSettingsPanel(private val project: Project?) : JPanel(BorderLayout(
                             )
                             statusLabel.text = PiBundle.message("plugins.install.failedShort")
                         }
-                    }
+                    }, ModalityState.any())
                 }
             }
         )
@@ -361,14 +364,14 @@ class PluginsSettingsPanel(private val project: Project?) : JPanel(BorderLayout(
                 override fun run(indicator: ProgressIndicator) {
                     indicator.isIndeterminate = true
                     val result = PackagesService.remove(selected.source, selected.scope, project?.basePath)
-                    ApplicationManager.getApplication().invokeLater {
+                    ApplicationManager.getApplication().invokeLater({
                         if (result.success) reload()
                         else Messages.showErrorDialog(
                             this@PluginsSettingsPanel,
                             PiBundle.message("plugins.remove.failed", result.output.takeLast(600)),
                             PiBundle.message("plugins.remove"),
                         )
-                    }
+                    }, ModalityState.any())
                 }
             }
         )

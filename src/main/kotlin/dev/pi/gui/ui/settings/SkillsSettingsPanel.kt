@@ -2,6 +2,7 @@ package dev.pi.gui.ui.settings
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.ui.OnePixelSplitter
@@ -202,7 +203,10 @@ class SkillsSettingsPanel(
 
         init {
             isOpaque = true
-            border = BorderFactory.createEmptyBorder(5, 8, 5, 6)
+            border = JBUI.Borders.compound(
+                JBUI.Borders.customLineBottom(PiTheme.messageDivider),
+                JBUI.Borders.empty(6, 10, 6, 6),
+            )
 
             val west = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply {
                 isOpaque = false
@@ -260,7 +264,10 @@ class SkillsSettingsPanel(
         val previous = selectedFilePath
         ApplicationManager.getApplication().executeOnPooledThread {
             val skills = runCatching(skillsProvider).getOrDefault(emptyList())
-            ApplicationManager.getApplication().invokeLater {
+            // any(): this panel sits inside the modal settings dialog, and an invokeLater posted
+            // from a pooled thread defaults to the non-modal state, which the IDE defers until
+            // every modal dialog closes — without this the list would stay empty while open.
+            ApplicationManager.getApplication().invokeLater({
                 rows.forEach { rowsPanel.remove(it) }
                 rows = skills.map { SkillRow(it) }
                 rows.forEach { rowsPanel.add(it) }
@@ -273,7 +280,7 @@ class SkillsSettingsPanel(
                     selectedFilePath = null
                     showDetail(null)
                 }
-            }
+            }, ModalityState.any())
         }
     }
 
@@ -315,7 +322,7 @@ class SkillsSettingsPanel(
         const val CARD_DETAIL = "detail"
     }
 
-    private val rowSelectedBg: java.awt.Color get() = PiTheme.surfaceBg
+    private val rowSelectedBg: java.awt.Color get() = PiTheme.buttonPressed
 
     /** The scrollable column hosting the rows; tracks the viewport width so rows never clip. */
     private inner class SkillsRowsViewport : JPanel(), javax.swing.Scrollable {

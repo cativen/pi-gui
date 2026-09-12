@@ -9,6 +9,7 @@ import dev.pi.gui.model.ContentBlock
 import dev.pi.gui.model.PiMessage
 import dev.pi.gui.session.SessionStore
 import dev.pi.gui.settings.PiSettings
+import dev.pi.gui.ui.components.BubbleRow
 import dev.pi.gui.ui.components.CodeBlock
 import dev.pi.gui.ui.components.CollapsibleSection
 import dev.pi.gui.ui.components.HtmlBlock
@@ -28,27 +29,37 @@ object MessageRenderer {
     }
 
     private fun renderUser(project: Project?, message: PiMessage.User): StackPanel {
-        val outer = StackPanel(0).apply { border = JBUI.Borders.empty(4, 0) }
+        val outer = StackPanel(0).apply { border = messageBorder() }
+        // Filled accent bubble, right-aligned with one square corner — the reference chat style.
         val bubble = RoundedPanel(
             background = PiTheme.userBubbleBg,
-            outline = PiTheme.userBubbleBorder,
+            outline = null,
             gap = 2,
+            padding = JBUI.insets(8, 12),
+            corners = intArrayOf(12, 12, 2, 12),
         )
-        bubble.add(MarkdownView(project, message.text))
+        bubble.add(MarkdownView(project, message.text, PiTheme.userBubbleFg))
         if (message.imageCount > 0) {
             bubble.add(
                 HtmlBlock(
-                    "<p><i>" + PiBundle.message("message.imagesAttached", message.imageCount) + "</i></p>"
+                    "<p><i>" + PiBundle.message("message.imagesAttached", message.imageCount) + "</i></p>",
+                    PiTheme.userBubbleFg,
                 )
             )
         }
-        outer.add(bubble)
+        outer.add(BubbleRow(bubble))
         return outer
     }
 
+    /** Vertical rhythm plus the hairline divider the reference UI draws between messages. */
+    private fun messageBorder(): javax.swing.border.Border? = JBUI.Borders.compound(
+        JBUI.Borders.customLineBottom(PiTheme.messageDivider),
+        JBUI.Borders.empty(10, 2, 10, 2),
+    )
+
     private fun renderAssistant(project: Project?, message: PiMessage.Assistant): StackPanel {
         val settings = PiSettings.getInstance()
-        val panel = StackPanel(2).apply { border = JBUI.Borders.empty(4, 0, 8, 0) }
+        val panel = StackPanel(2).apply { border = messageBorder() }
 
         message.blocks.forEach { block ->
             when (block) {
@@ -167,7 +178,7 @@ object MessageRenderer {
     }
 
     private fun renderNotice(message: PiMessage.Notice): StackPanel {
-        val panel = StackPanel(0).apply { border = JBUI.Borders.empty(6, 0) }
+        val panel = StackPanel(0).apply { border = messageBorder() }
         val row = JPanel(BorderLayout()).apply {
             isOpaque = false
             add(
