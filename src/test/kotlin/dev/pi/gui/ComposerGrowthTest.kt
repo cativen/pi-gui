@@ -27,12 +27,16 @@ class ComposerGrowthTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
+        // The growth-then-scroll behaviour asserted here belongs to the Swing composer. The
+        // browser one grows in CSS instead, so there is no re-parenting for it to get wrong.
+        System.setProperty(ChatPanel.FORCE_SWING_PROPERTY, "true")
         savedPiPath = PiSettings.getInstance().piPath
         PiSettings.getInstance().piPath = "C:/no/such/pi-executable.exe"
     }
 
     override fun tearDown() {
         try {
+            System.clearProperty(ChatPanel.FORCE_SWING_PROPERTY)
             PiSettings.getInstance().piPath = savedPiPath ?: ""
         } finally {
             super.tearDown()

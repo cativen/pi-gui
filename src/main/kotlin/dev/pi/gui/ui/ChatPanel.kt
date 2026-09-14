@@ -40,9 +40,9 @@ import dev.pi.gui.rpc.getAsJsonObjectOrNull
 import dev.pi.gui.session.SessionStore
 import dev.pi.gui.settings.PiSettings
 import dev.pi.gui.ui.components.PiButton
+import dev.pi.gui.ui.transcript.ChatSurface
 import dev.pi.gui.ui.transcript.SwingTranscriptSurface
-import dev.pi.gui.ui.transcript.TranscriptSurface
-import dev.pi.gui.ui.transcript.WebTranscriptSurface
+import dev.pi.gui.ui.transcript.WebChatSurface
 import dev.pi.gui.web.PiWebView
 import dev.pi.gui.ui.settings.PiSettingsDialog
 import dev.pi.gui.ui.components.StackPanel
@@ -89,9 +89,12 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
      * some distributions ship without it and users can switch it off, and the plugin has to keep
      * working there.
      */
-    private val surface: TranscriptSurface =
-        if (useWebTranscript()) WebTranscriptSurface(project) { copyToClipboard(it) }
-        else SwingTranscriptSurface(project)
+    private val surface: ChatSurface =
+        if (useWebTranscript()) WebChatSurface(project, onCopy = { copyToClipboard(it) })
+        else SwingChatAdapter()
+
+    /** True when the conversation and composer live in the browser. */
+    private val webMode: Boolean get() = surface !is SwingChatAdapter
     /**
      * Overriding `paste()` catches every route that ends at `JTextComponent.paste()` — the
      * right-click Paste menu item and programmatic callers. The keyboard route itself needs the
@@ -127,6 +130,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     /** Share of the model's context window the session currently occupies, when pi reports it. */
     private val contextLabel = JBLabel("")
     private var contextPercent: Double? = null
+    private var contextTooltip: String? = null
 
     private val statusLabel = JBLabel(" ")
     private val branchLabel = JBLabel("")
@@ -250,22 +254,119 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         background = PiTheme.chatBg
         isOpaque = true
 
-        surface.onLoadEarlier = { loadEarlierMessages() }
+        wireSurface()
         center.isOpaque = true
         center.background = PiTheme.chatBg
         center.add(surface.component, java.awt.BorderLayout.CENTER)
 
         add(buildStatusStrip(), BorderLayout.NORTH)
         add(center, BorderLayout.CENTER)
-        add(
-            JPanel(BorderLayout()).apply {
-                isOpaque = false
-                add(editsPanel, BorderLayout.NORTH)
-                add(buildComposer(), BorderLayout.CENTER)
-            },
-            BorderLayout.SOUTH,
+        // In web mode the composer and edits strip are inside the browser, below the transcript.
+        if (!webMode) {
+            add(
+                JPanel(BorderLayout()).apply {
+                    isOpaque = false
+                    add(editsPanel, BorderLayout.NORTH)
+                    add(buildComposer(), BorderLayout.CENTER)
+                },
+                BorderLayout.SOUTH,
+            )
+        }
+    }
+
+    /**
+     * Point the surface's callbacks at the handlers that already exist.
+     *
+     * The Swing composer calls these directly, so in that mode every callback but
+     * `onLoadEarlier` stays null and nothing is duplicated.
+     */
+    private fun wireSurface() {
+        surface.onLoadEarlier = { loadEarlierMessages() }
+        if (!webMode) return
+
+        // The Swing strip is kept off-screen in web mode: it still collects the files and runs
+        // the git stats, and it is what `openDiffFor` resolves against.
+        editsPanel.onFilesChanged = { files, stats ->
+            surface.setEdits(
+                files.map {
+                    val stat = stats[it.absolutePath]
+                    ChatSurface.Edit(it.displayPath, stat?.added ?: 0, stat?.removed ?: 0)
+                }
+            )
+        }
+
+        surface.onSend = { text -> sendComposed(text) }
+        surface.onAbort = { rpc?.abort() }
+        surface.onAttach = { chooseAttachments() }
+        surface.onRemoveAttachment = { id ->
+            attachments.firstOrNull { attachmentId(it) == id }?.let { removeAttachment(it) }
+        }
+        surface.onDropFiles = { paths -> addAttachments(paths.map(::File).filter { it.exists() }) }
+        surface.onPasteClipboard = { pasteAttachmentsFromClipboard() }
+        surface.onCompact = { compactNow() }
+        surface.onSelectProvider = { id ->
+            if (!suppressModelEvents) {
+                selectProvider(id, PiSettings.getInstance().activeModel.takeIf { it.isNotBlank() })
+                    ?.let { applySelectionToAgent(it) }
+            }
+        }
+        surface.onSelectModel = { id ->
+            if (!suppressModelEvents) {
+                allModels.firstOrNull { it.id == id }?.let { applySelectionToAgent(it) }
+            }
+        }
+        surface.onSelectThinking = { level ->
+            if (!suppressModelEvents) {
+                PiSettings.getInstance().activeThinking = level
+                rpc?.setThinkingLevel(level)
+            }
+        }
+        surface.onOpenDiff = { path -> editsPanel.openDiffFor(path) }
+        surface.onRequestCommands = {
+            commandRegistry.ensureLoaded(rpc) { pushCommands() }
+            pushCommands()
+        }
+        surface.setSendOnEnter(PiSettings.getInstance().sendOnEnter)
+    }
+
+    /** The completion list the browser's `/` popup filters. */
+    private fun pushCommands() {
+        if (disposed || !webMode) return
+        surface.setCommands(
+            commandRegistry.snapshot().map {
+                ChatSurface.Command(it.name, it.description.orEmpty())
+            }
         )
     }
+
+    /**
+     * Mirror the footer combos into the browser.
+     *
+     * The combos stay the source of truth even in web mode: they hold the real [ModelOption]
+     * objects, and every path that changes a selection — restoring a saved one, the agent
+     * reporting what it actually runs, a `thinking_level_changed` event — already goes through
+     * them. The page gets plain ids and labels.
+     */
+    private fun pushModels() {
+        if (disposed || !webMode) return
+        surface.setModels(
+            ChatSurface.ModelChoices(
+                providers = comboItems(providerCombo).map { ChatSurface.Choice(it.id, it.label) },
+                provider = (providerCombo.selectedItem as? ProviderOption)?.id,
+                models = comboItems(modelCombo).map { ChatSurface.Choice(it.id, it.id) },
+                model = (modelCombo.selectedItem as? ModelOption)?.id,
+                thinking = comboItems(thinkingCombo).map { ChatSurface.Choice(it, it) },
+                thinkingLevel = thinkingCombo.selectedItem as? String,
+            )
+        )
+    }
+
+    private fun <T> comboItems(combo: JComboBox<T>): List<T> =
+        combo.model.let { model -> (0 until model.size).map { model.getElementAt(it) } }
+
+    /** Stable identity for an attachment chip, so the view can ask for one to be removed. */
+    private fun attachmentId(attachment: Attachment): String =
+        System.identityHashCode(attachment).toString()
 
     private fun buildStatusStrip(): JComponent {
         val strip = JPanel(BorderLayout()).apply {
@@ -653,21 +754,25 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
             }
         }
         attachments.add(attachment)
-        attachmentStrip.setAttachments(attachments)
-        revalidate()
-        repaint()
+        pushAttachments()
     }
 
     private fun removeAttachment(attachment: Attachment) {
         attachments.remove(attachment)
-        attachmentStrip.setAttachments(attachments)
-        revalidate()
-        repaint()
+        pushAttachments()
     }
 
     private fun clearAttachments() {
         attachments.clear()
-        attachmentStrip.setAttachments(attachments)
+        pushAttachments()
+    }
+
+    private fun pushAttachments() {
+        surface.setAttachments(
+            attachments.map { ChatSurface.Attachment(attachmentId(it), it.displayName) }
+        )
+        revalidate()
+        repaint()
     }
 
     private fun notifyAttachmentProblem(message: String) {
@@ -804,7 +909,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         contextPercent = usage?.get("percent")?.asDoubleOrNull()
         val tokens = usage?.get("tokens")?.asLongOrNull()
         val window = usage?.get("contextWindow")?.asLongOrNull()
-        contextLabel.toolTipText = if (tokens != null && window != null) {
+        contextTooltip = if (tokens != null && window != null) {
             PiBundle.message(
                 "chat.context.tooltip",
                 SessionStore.formatTokens(tokens),
@@ -818,9 +923,10 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     private fun updateContextLabel() {
         val percent = contextPercent
-        contextLabel.text = percent?.let { PiBundle.message("chat.context", formatContextPercent(it)) }.orEmpty()
-        contextLabel.foreground = PiTheme.mutedFg()
-        contextLabel.isVisible = percent != null
+        surface.setContext(
+            percent?.let { PiBundle.message("chat.context", formatContextPercent(it)) },
+            contextTooltip,
+        )
     }
 
 
@@ -1123,7 +1229,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
         if (builtin.availability == BuiltinCommands.Availability.CLI_ONLY) {
             appendMessage(PiMessage.Notice(PiBundle.message("command.cliOnly", "/$name")))
-            input.text = ""
+            surface.setComposerText("")
             return true
         }
 
@@ -1142,7 +1248,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
             "reload" -> reloadAgent()
             else -> withAgent(name) { client -> runAgentBuiltin(name, args, client) }
         }
-        input.text = ""
+        surface.setComposerText("")
         commandPopup.hide()
         return true
     }
@@ -1545,11 +1651,18 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     // ----------------------------------------------------------------- sending
 
+    /** The Swing composer's send button and Enter binding. */
     private fun send() {
-        val text = input.text.trim()
-        if (text.isEmpty() && attachments.isEmpty()) return
-
         commandPopup.hide()
+        sendComposed(input.text.trim())
+    }
+
+    /**
+     * Send what the composer holds. The text is passed in rather than read back, because in web
+     * mode the view is the one that has it — the plugin does not mirror every keystroke.
+     */
+    private fun sendComposed(text: String) {
+        if (text.isEmpty() && attachments.isEmpty()) return
 
         // pi's built-ins never reach the agent as prompts; the plugin performs them itself.
         if (runBuiltinCommand(text)) return
@@ -1580,7 +1693,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         // pi rejects them as steering ("use prompt instead") — they run immediately instead.
         val midRun = isRunning && streaming.isStreaming && !isExtensionCommand(text)
 
-        input.text = ""
+        surface.setComposerText("")
         appendMessage(PiMessage.User(text, imageCount = images.size))
         clearAttachments()
         pendingUserText = text
@@ -1782,6 +1895,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         val pick = models.firstOrNull { it.id == preferredModel } ?: models.first()
         modelCombo.selectedItem = pick
         suppressModelEvents = false
+        pushModels()
         return pick
     }
 
@@ -1841,6 +1955,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                     .takeIf { saved -> saved.isNotBlank() && levels.contains(saved) }
                     ?.let { thinkingCombo.selectedItem = it }
                 suppressModelEvents = false
+                pushModels()
             }
         }
     }
@@ -1941,6 +2056,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                 }
                 level?.let { thinkingCombo.selectedItem = it }
                 suppressModelEvents = false
+                pushModels()
 
                 // Once the remembered selection has been restored, the live agent is the source
                 // of truth: whatever it actually runs with becomes the remembered default.
@@ -2130,6 +2246,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                 suppressModelEvents = true
                 thinkingCombo.selectedItem = level
                 suppressModelEvents = false
+                pushModels()
             }
 
             "session_info_changed" -> onSessionChanged?.invoke()
@@ -2197,13 +2314,9 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     private fun setRunning(running: Boolean) {
         isRunning = running
-        // Compacting mid-turn fights the run that is already using the context.
-        compactButton.isEnabled = !running
-        sendButton.isEnabled = true
-        // Icon-only button: relabelling here used to squeeze icon + text into the old fixed
-        // 28px square and clip both. The tooltip carries the queue/send wording instead.
-        sendButton.toolTipText = PiBundle.message(if (running) "chat.queue" else "chat.send")
-        stopButton.isVisible = running
+        // Compacting mid-turn fights the run that is already using the context; the surface
+        // hides the stop button and disables compact accordingly.
+        surface.setRunning(running)
     }
 
     private fun statusSummary(): String {
@@ -2233,6 +2346,116 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         statusLabel.text = text.ifBlank { " " }
     }
 
+    /**
+     * Presents the existing Swing widgets as a [ChatSurface].
+     *
+     * The fallback path is left exactly as it was rather than extracted into its own class: its
+     * composer carries key bindings, a transfer handler and a completion popup that cannot be
+     * verified without a running IDE, and moving them would risk the one path that has to keep
+     * working where JCEF does not. The adapter only forwards.
+     */
+    private inner class SwingChatAdapter : ChatSurface {
+
+        private val transcript = SwingTranscriptSurface(project)
+
+        override val component: JComponent get() = transcript.component
+
+        override var onLoadEarlier: (() -> Unit)?
+            get() = transcript.onLoadEarlier
+            set(value) { transcript.onLoadEarlier = value }
+
+        // The Swing composer talks to ChatPanel directly, so these stay unused.
+        override var onSend: ((String) -> Unit)? = null
+        override var onAbort: (() -> Unit)? = null
+        override var onAttach: (() -> Unit)? = null
+        override var onRemoveAttachment: ((String) -> Unit)? = null
+        override var onDropFiles: ((List<String>) -> Unit)? = null
+        override var onPasteClipboard: (() -> Unit)? = null
+        override var onCompact: (() -> Unit)? = null
+        override var onSelectProvider: ((String) -> Unit)? = null
+        override var onSelectModel: ((String) -> Unit)? = null
+        override var onSelectThinking: ((String) -> Unit)? = null
+        override var onOpenDiff: ((String) -> Unit)? = null
+        override var onRequestCommands: (() -> Unit)? = null
+
+        override fun setMessages(messages: List<PiMessage>, hiddenCount: Int) =
+            transcript.setMessages(messages, hiddenCount)
+
+        override fun appendMessage(message: PiMessage) = transcript.appendMessage(message)
+
+        override fun prependMessages(messages: List<PiMessage>, hiddenCount: Int) =
+            transcript.prependMessages(messages, hiddenCount)
+
+        override fun setStreaming(message: PiMessage?) = transcript.setStreaming(message)
+
+        override fun showEmptyState(projectPath: String?) = transcript.showEmptyState(projectPath)
+
+        override fun applySettings() = transcript.applySettings()
+
+        override fun scrollToBottom() = transcript.scrollToBottom()
+
+        override fun isNearBottom(): Boolean = transcript.isNearBottom()
+
+        override fun renderedCount(): Int = transcript.renderedCount()
+
+        override fun composerText(): String = input.text
+
+        override fun setComposerText(text: String, focus: Boolean) {
+            input.text = text
+            if (focus) input.requestFocusInWindow()
+        }
+
+        override fun appendComposerText(text: String) {
+            val existing = input.text
+            val needsSpace = existing.isNotEmpty() && !existing.last().isWhitespace()
+            input.text = buildString {
+                append(existing)
+                if (needsSpace) append(' ')
+                append(text)
+                append(' ')
+            }
+            input.caretPosition = input.text.length
+        }
+
+        override fun focusComposer() { input.requestFocusInWindow() }
+
+        override fun setRunning(running: Boolean) {
+            compactButton.isEnabled = !running
+            sendButton.isEnabled = true
+            sendButton.toolTipText =
+                PiBundle.message(if (running) "chat.queue" else "chat.send")
+            stopButton.isVisible = running
+        }
+
+        override fun setAttachments(items: List<ChatSurface.Attachment>) {
+            attachmentStrip.setAttachments(attachments)
+        }
+
+        override fun setModels(models: ChatSurface.ModelChoices) {
+            // The Swing combos are driven directly by applyModelList, which knows the real
+            // ModelOption/ProviderOption objects rather than these plain ids.
+        }
+
+        override fun setContext(label: String?, tooltip: String?) {
+            contextLabel.text = label.orEmpty()
+            contextLabel.isVisible = label != null
+            contextLabel.toolTipText = tooltip
+            contextLabel.foreground = PiTheme.mutedFg()
+        }
+
+        override fun setCommands(items: List<ChatSurface.Command>) {
+            // The Swing popup reads the registry itself.
+        }
+
+        override fun setEdits(items: List<ChatSurface.Edit>) = editsPanel.update(messages)
+
+        override fun setSendOnEnter(sendOnEnter: Boolean) {
+            // Read from settings at keypress time by the Swing key bindings.
+        }
+
+        override fun dispose() = transcript.dispose()
+    }
+
     /** Copying from a code block in the web view still goes through the system clipboard. */
     private fun copyToClipboard(text: String) {
         try {
@@ -2249,7 +2472,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     }
 
     fun focusInput() {
-        input.requestFocusInWindow()
+        surface.focusComposer()
     }
 
     /**
@@ -2260,6 +2483,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         background = PiTheme.chatBg
         center.background = PiTheme.chatBg
         surface.applySettings()
+        surface.setSendOnEnter(PiSettings.getInstance().sendOnEnter)
 
         statusLabel.foreground = PiTheme.mutedFg()
         branchLabel.foreground = PiTheme.mutedFg()
@@ -2323,16 +2547,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
      */
     fun appendToInput(text: String) {
         if (text.isBlank()) return
-        val existing = input.text
-        val needsSpace = existing.isNotEmpty() &&
-            !existing.last().isWhitespace()
-        input.text = buildString {
-            append(existing)
-            if (needsSpace) append(' ')
-            append(text)
-            append(' ')
-        }
-        input.caretPosition = input.text.length
+        surface.appendComposerText(text)
     }
 
     fun currentSession(): SessionInfo? = session

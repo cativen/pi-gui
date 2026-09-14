@@ -17,6 +17,23 @@ import javax.swing.JComponent
 import javax.swing.JPanel
 
 /**
+ * The page a surface talks to.
+ *
+ * [PiWebView] is the only implementation that ships, but naming the seam lets the surfaces be
+ * exercised without a browser — the events they post are the contract with the JavaScript, and
+ * nothing headless can start Chromium to check it.
+ */
+interface WebPage : Disposable {
+    val component: JComponent
+
+    /** Push one event into the page. Safe to call before the page has loaded. */
+    fun post(event: Map<String, Any?>)
+
+    /** Hand keyboard focus to the page itself, not just to an element inside it. */
+    fun requestBrowserFocus()
+}
+
+/**
  * Hosts the chat UI in JCEF and carries messages between it and the plugin.
  *
  * The page is assembled in Kotlin and handed to the browser as one self-contained document —
@@ -29,7 +46,7 @@ class PiWebView(
     /** Page under `/web`, without the extension: "transcript" or "index". */
     private val page: String,
     private val onMessage: (JsonObject) -> Unit,
-) : JPanel(BorderLayout()), Disposable {
+) : JPanel(BorderLayout()), WebPage {
 
     private val log = Logger.getInstance(PiWebView::class.java)
     private val gson = Gson()
@@ -42,7 +59,7 @@ class PiWebView(
     @Volatile private var ready = false
     @Volatile private var disposed = false
 
-    val component: JComponent get() = this
+    override val component: JComponent get() = this
 
     init {
         Disposer.register(this, browser)
@@ -67,7 +84,7 @@ class PiWebView(
         }, browser.cefBrowser)
 
         add(browser.component, BorderLayout.CENTER)
-        browser.loadHTML(page())
+        browser.loadHTML(document(page))
     }
 
     /**
@@ -88,8 +105,7 @@ class PiWebView(
         }
     }
 
-    /** Push one event into the page. Safe to call before the page is ready. */
-    fun post(event: Map<String, Any?>) {
+    override fun post(event: Map<String, Any?>) {
         val json = gson.toJson(event)
         synchronized(pending) {
             if (!ready) {
@@ -98,6 +114,18 @@ class PiWebView(
             }
         }
         dispatch(json)
+    }
+
+    /**
+     * Hand keyboard focus to the browser.
+     *
+     * Focusing an element from JavaScript only moves the caret inside the page; if Swing focus is
+     * still on the tool window or the tree, typing never reaches Chromium. Callers that want the
+     * composer really focused need both.
+     */
+    override fun requestBrowserFocus() {
+        if (disposed) return
+        browser.component.requestFocusInWindow()
     }
 
     private fun dispatch(json: String) {
@@ -110,18 +138,27 @@ class PiWebView(
         )
     }
 
-    private fun page(): String {
-        val html = resource("/web/$page.html")
-        val css = resource("/web/app.css")
-        val js = resource("/web/$page.js")
-        return html
+    override fun dispose() {
+        disposed = true
+        // `query` and `browser` are both registered with the Disposer; nothing else to unwind.
+    }
+
+    companion object {
+        /**
+         * The page as one self-contained document, stylesheet and script inlined.
+         *
+         * Chromium cannot fetch a plugin's resources out of a jar, so nothing may stay external.
+         * This is pure so a test can check the inlining really happened — a renamed resource would
+         * otherwise leave an unstyled or inert page with no error anywhere.
+         */
+        fun document(page: String): String = resource("/web/$page.html")
             .replace(
                 """<link rel="stylesheet" href="app.css">""",
-                "<style>\n$css\n</style>",
+                "<style>\n${resource("/web/app.css")}\n</style>",
             )
             .replace(
                 """<script src="$page.js"></script>""",
-                "<script>\n$js\n</script>",
+                "<script>\n${resource("/web/$page.js")}\n</script>",
             )
             // Inlining makes an external-source policy wrong; the document still reaches no
             // network origin at all, which is what the policy is there to guarantee.
@@ -129,18 +166,11 @@ class PiWebView(
                 """default-src 'none'; style-src 'unsafe-inline' 'self'; script-src 'self'; img-src data:;""",
                 """default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;""",
             )
-    }
 
-    private fun resource(path: String): String =
-        PiWebView::class.java.getResourceAsStream(path)?.bufferedReader()?.use { it.readText() }
-            ?: error("missing bundled resource $path")
+        private fun resource(path: String): String =
+            PiWebView::class.java.getResourceAsStream(path)?.bufferedReader()?.use { it.readText() }
+                ?: error("missing bundled resource $path")
 
-    override fun dispose() {
-        disposed = true
-        // `query` and `browser` are both registered with the Disposer; nothing else to unwind.
-    }
-
-    companion object {
         /** JCEF is absent from some IDE builds and can be switched off by the user. */
         fun isAvailable(): Boolean = try {
             JBCefApp.isSupported()

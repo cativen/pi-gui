@@ -18,6 +18,21 @@ import dev.pi.gui.ui.ChatPanel
  */
 class BuiltinCommandTest : BasePlatformTestCase() {
 
+    override fun setUp() {
+        super.setUp()
+        // These read the Swing composer directly; the browser composer answers over
+        // the JS bridge, which no headless test can drive. The dispatch logic is the same either way.
+        System.setProperty(ChatPanel.FORCE_SWING_PROPERTY, "true")
+    }
+
+    override fun tearDown() {
+        try {
+            System.clearProperty(ChatPanel.FORCE_SWING_PROPERTY)
+        } finally {
+            super.tearDown()
+        }
+    }
+
     /** The exact set pi 0.84.2 ships, in its own order. */
     private val expectedNames = listOf(
         "settings", "model", "tree", "thinking", "scoped-models", "export", "import", "share",

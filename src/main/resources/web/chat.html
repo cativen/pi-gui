@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;">
+  <title>Pi chat</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body class="chat">
+<div id="chat-root">
+  <div id="scroller" class="transcript">
+    <div id="empty" class="empty">
+      <div class="glyph">&pi;</div>
+      <div class="empty-title"></div>
+      <div class="empty-path"></div>
+    </div>
+    <div id="earlier"></div>
+    <div id="messages"></div>
+    <div id="streaming"></div>
+  </div>
+
+  <div id="edits" class="edits" hidden></div>
+
+  <div id="composer">
+    <div id="attachments" class="attachments" hidden></div>
+    <div id="command-popup" class="command-popup" hidden></div>
+    <div id="input-shell">
+      <textarea id="input" rows="3" spellcheck="false"></textarea>
+    </div>
+    <div id="controls">
+      <button id="attach" class="icon-btn" title="">+</button>
+      <select id="provider" class="combo"></select>
+      <select id="model" class="combo"></select>
+      <select id="thinking" class="combo"></select>
+      <span class="spacer"></span>
+      <span id="context" class="context" hidden></span>
+      <button id="compact" class="icon-btn" title="">⌄</button>
+      <button id="stop" class="icon-btn danger" title="" hidden>■</button>
+      <button id="send" class="icon-btn primary" title="">▶</button>
+    </div>
+  </div>
+</div>
+<script src="chat.js"></script>
+</body>
+</html>

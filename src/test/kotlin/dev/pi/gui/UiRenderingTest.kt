@@ -1,6 +1,7 @@
 package dev.pi.gui
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import dev.pi.gui.ui.ChatPanel
 import dev.pi.gui.model.ContentBlock
 import dev.pi.gui.model.PiMessage
 import dev.pi.gui.model.Usage
@@ -15,6 +16,21 @@ import java.awt.Dimension
  * component construction are exercised rather than only the parsing logic.
  */
 class UiRenderingTest : BasePlatformTestCase() {
+
+    override fun setUp() {
+        super.setUp()
+        // Two cases below drive the Swing composer; the rest build components directly and
+        // do not care which surface a ChatPanel would pick.
+        System.setProperty(ChatPanel.FORCE_SWING_PROPERTY, "true")
+    }
+
+    override fun tearDown() {
+        try {
+            System.clearProperty(ChatPanel.FORCE_SWING_PROPERTY)
+        } finally {
+            super.tearDown()
+        }
+    }
 
     private fun layoutAt(width: Int, panel: javax.swing.JComponent): Int {
         panel.size = Dimension(width, 10_000)

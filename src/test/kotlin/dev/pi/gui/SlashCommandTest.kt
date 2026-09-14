@@ -14,6 +14,21 @@ import dev.pi.gui.ui.ChatPanel
  */
 class SlashCommandTest : BasePlatformTestCase() {
 
+    override fun setUp() {
+        super.setUp()
+        // The popup asserted here is the Swing one. The browser has its own, filtering the
+        // same list the registry hands over.
+        System.setProperty(ChatPanel.FORCE_SWING_PROPERTY, "true")
+    }
+
+    override fun tearDown() {
+        try {
+            System.clearProperty(ChatPanel.FORCE_SWING_PROPERTY)
+        } finally {
+            super.tearDown()
+        }
+    }
+
     private fun sampleCommands() = listOf(
         PiCommand("llama", "Manage llama.cpp router models", "extension"),
         PiCommand("fix-tests", "Fix failing tests", "prompt", location = "project"),

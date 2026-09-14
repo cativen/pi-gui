@@ -16,6 +16,21 @@ import javax.swing.JComponent
  */
 class ContextCompactionTest : BasePlatformTestCase() {
 
+    override fun setUp() {
+        super.setUp()
+        // The readout and the compact button are asserted as Swing components here; in web
+        // mode they are DOM nodes. The threshold logic they guard is shared.
+        System.setProperty(ChatPanel.FORCE_SWING_PROPERTY, "true")
+    }
+
+    override fun tearDown() {
+        try {
+            System.clearProperty(ChatPanel.FORCE_SWING_PROPERTY)
+        } finally {
+            super.tearDown()
+        }
+    }
+
     // ------------------------------------------------------------ the threshold
 
     fun testBelowTheThresholdCompactionIsRefused() {
