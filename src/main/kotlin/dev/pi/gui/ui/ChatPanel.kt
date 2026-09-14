@@ -40,6 +40,10 @@ import dev.pi.gui.rpc.getAsJsonObjectOrNull
 import dev.pi.gui.session.SessionStore
 import dev.pi.gui.settings.PiSettings
 import dev.pi.gui.ui.components.PiButton
+import dev.pi.gui.ui.transcript.SwingTranscriptSurface
+import dev.pi.gui.ui.transcript.TranscriptSurface
+import dev.pi.gui.ui.transcript.WebTranscriptSurface
+import dev.pi.gui.web.PiWebView
 import dev.pi.gui.ui.settings.PiSettingsDialog
 import dev.pi.gui.ui.components.StackPanel
 import dev.pi.gui.ui.components.RoundedBorder
@@ -80,12 +84,14 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     private val log = Logger.getInstance(ChatPanel::class.java)
 
-    private val transcript = TranscriptPanel()
-    private val scrollPane = JBScrollPane(
-        transcript,
-        ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
-        ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER,
-    )
+    /**
+     * The conversation area. Chromium when the IDE has JCEF, the original Swing view otherwise —
+     * some distributions ship without it and users can switch it off, and the plugin has to keep
+     * working there.
+     */
+    private val surface: TranscriptSurface =
+        if (useWebTranscript()) WebTranscriptSurface(project) { copyToClipboard(it) }
+        else SwingTranscriptSurface(project)
     /**
      * Overriding `paste()` catches every route that ends at `JTextComponent.paste()` — the
      * right-click Paste menu item and programmatic callers. The keyboard route itself needs the
@@ -125,9 +131,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     private val statusLabel = JBLabel(" ")
     private val branchLabel = JBLabel("")
 
-    private val cards = CardLayout()
-    private val center = JPanel(cards)
-    private lateinit var emptyState: JComponent
+    private val center = JPanel(java.awt.BorderLayout())
 
     /** Start of the in-flight assistant step, used for the live timer and the message footer. */
     private var stepStartedAt: Long? = null
@@ -246,17 +250,10 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         background = PiTheme.chatBg
         isOpaque = true
 
-        scrollPane.border = JBUI.Borders.empty()
-        scrollPane.viewport.background = PiTheme.chatBg
-        scrollPane.background = PiTheme.chatBg
-        transcript.background = PiTheme.chatBg
-        transcript.isOpaque = true
-
+        surface.onLoadEarlier = { loadEarlierMessages() }
         center.isOpaque = true
         center.background = PiTheme.chatBg
-        emptyState = buildEmptyState()
-        center.add(emptyState, CARD_EMPTY)
-        center.add(scrollPane, CARD_CHAT)
+        center.add(surface.component, java.awt.BorderLayout.CENTER)
 
         add(buildStatusStrip(), BorderLayout.NORTH)
         add(center, BorderLayout.CENTER)
@@ -1388,14 +1385,12 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     }
 
     private fun showEmptyState() {
-        transcript.removeAll()
-        streamingComponent = null
-        cards.show(center, CARD_EMPTY)
+        surface.showEmptyState(project.basePath)
     }
 
     /** Swap the watermark out for the transcript the moment there is anything to show. */
     private fun showTranscript() {
-        cards.show(center, CARD_CHAT)
+        // The surface reveals itself as soon as it has content.
     }
 
     // ------------------------------------------------------------- transcript
@@ -1411,18 +1406,12 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     private fun rebuildTranscript() {
         // Any fill still queued belongs to the transcript being replaced.
         fillGeneration++
-        transcript.removeAll()
-        streamingComponent = null
-
         val hidden = hiddenMessageCount()
-        loadEarlierRow = if (hidden > 0) buildLoadEarlierRow(hidden).also { transcript.add(it) } else null
-        messages.drop(hidden).forEach { transcript.add(MessageRenderer.render(project, it)) }
+        surface.setMessages(messages.drop(hidden), hidden)
 
         if (messages.isEmpty()) showEmptyState() else showTranscript()
-        eagerComponentCount = transcript.componentCount
+        eagerComponentCount = surface.renderedCount()
         editsPanel.update(messages)
-        transcript.revalidate()
-        transcript.repaint()
         scheduleTranscriptFill(fillGeneration)
     }
 
@@ -1468,24 +1457,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
      * screen on every chunk, turning a linear fill into a quadratic one.
      */
     private fun prependMessages(firstIndex: Int, untilIndex: Int) {
-        val pinned = isNearBottom()
-        // Drop the stale "load earlier" row before inserting; a fresh one goes back on top.
-        if (transcript.componentCount > 0 && loadEarlierRow != null) {
-            transcript.remove(loadEarlierRow)
-            loadEarlierRow = null
-        }
-        for (i in untilIndex - 1 downTo firstIndex) {
-            transcript.add(MessageRenderer.render(project, messages[i]), 0)
-        }
-        if (firstIndex > 0) {
-            val row = buildLoadEarlierRow(firstIndex)
-            loadEarlierRow = row
-            transcript.add(row, 0)
-        }
-        transcript.revalidate()
-        transcript.repaint()
-        // Content grew above the viewport; without re-pinning the view would drift upward.
-        if (pinned) scrollToBottom()
+        surface.prependMessages(messages.subList(firstIndex, untilIndex), firstIndex)
     }
 
     /**
@@ -1529,21 +1501,11 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         }
     }
 
-    private fun buildLoadEarlierRow(hidden: Int): JComponent {
-        val row = StackPanel(0).apply { border = JBUI.Borders.empty(4, 0, 10, 0) }
-        val button = PiButton(
-            PiBundle.message("chat.loadEarlier", hidden), null, PiButton.Style.SECONDARY,
-        )
-        button.addActionListener {
-            visibleLimit += VISIBLE_PAGE_SIZE
-            visibleLineBudget += PAGE_LINE_BUDGET
-            rebuildTranscript()
-        }
-        row.add(JPanel(java.awt.FlowLayout(java.awt.FlowLayout.CENTER, 0, 0)).apply {
-            isOpaque = false
-            add(button)
-        })
-        return row
+    /** "Load earlier messages" widens the window by another page. */
+    private fun loadEarlierMessages() {
+        visibleLimit += VISIBLE_PAGE_SIZE
+        visibleLineBudget += PAGE_LINE_BUDGET
+        rebuildTranscript()
     }
 
     private fun appendMessage(message: PiMessage) {
@@ -1552,44 +1514,18 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         visibleLineBudget += renderedLineCost(message).coerceAtLeast(1)
         editsPanel.update(messages)
         showTranscript()
-        // Insert before the live streaming bubble so ordering stays chronological.
-        val streamingIdx = streamingComponent?.let { comp ->
-            transcript.components.indexOfFirst { it === comp }
-        } ?: -1
-        val component = MessageRenderer.render(project, message)
-        if (streamingIdx >= 0) transcript.add(component, streamingIdx) else transcript.add(component)
-        transcript.revalidate()
-        transcript.repaint()
-        maybeScrollToBottom()
+        surface.appendMessage(message)
     }
 
     private fun flushStreaming() {
-        val current = streaming.current
-        if (current == null) {
-            streamingComponent?.let { transcript.remove(it) }
-            streamingComponent = null
-            transcript.revalidate()
-            transcript.repaint()
-            return
-        }
-        val rendered = MessageRenderer.render(project, current)
-        streamingComponent?.let { transcript.remove(it) }
-        showTranscript()
-        transcript.add(rendered)
-        streamingComponent = rendered
-        transcript.revalidate()
-        transcript.repaint()
-        maybeScrollToBottom()
+        surface.setStreaming(streaming.current)
     }
 
     private fun scheduleStreamingRepaint() {
         if (!repaintTimer.isRunning) repaintTimer.restart()
     }
 
-    private fun isNearBottom(): Boolean {
-        val bar = scrollPane.verticalScrollBar
-        return bar.value + bar.visibleAmount >= bar.maximum - JBUI.scale(120)
-    }
+    private fun isNearBottom(): Boolean = surface.isNearBottom()
 
     private fun maybeScrollToBottom() {
         if (isNearBottom()) scrollToBottom()
@@ -1605,20 +1541,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
      * frame, purely to land somewhere it could have jumped to in one step. `JViewport` has no
      * such animation, so the destination is identical and the travel disappears.
      */
-    private fun scrollToBottom() {
-        SwingUtilities.invokeLater {
-            val viewport = scrollPane.viewport
-            val view = viewport.view ?: return@invokeLater
-            // The target depends on the transcript's final height, so let pending layout settle.
-            scrollPane.validate()
-            // `preferredSize` is the fallback for the window between rebuilding the transcript and
-            // the layout pass landing: `height` is still the old content's, which would leave the
-            // view short of the newest message.
-            val contentHeight = maxOf(view.height, view.preferredSize.height)
-            val y = (contentHeight - viewport.extentSize.height).coerceAtLeast(0)
-            viewport.viewPosition = Point(0, y)
-        }
-    }
+    private fun scrollToBottom() = surface.scrollToBottom()
 
     // ----------------------------------------------------------------- sending
 
@@ -2310,6 +2233,16 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         statusLabel.text = text.ifBlank { " " }
     }
 
+    /** Copying from a code block in the web view still goes through the system clipboard. */
+    private fun copyToClipboard(text: String) {
+        try {
+            java.awt.Toolkit.getDefaultToolkit().systemClipboard
+                .setContents(java.awt.datatransfer.StringSelection(text), null)
+        } catch (e: Exception) {
+            log.warn("Could not copy to the clipboard", e)
+        }
+    }
+
     private fun onEdt(block: () -> Unit) {
         val app = ApplicationManager.getApplication()
         if (app.isDispatchThread) block() else app.invokeLater(block)
@@ -2325,10 +2258,8 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
      */
     fun applySettings() {
         background = PiTheme.chatBg
-        scrollPane.viewport.background = PiTheme.chatBg
-        scrollPane.background = PiTheme.chatBg
-        transcript.background = PiTheme.chatBg
         center.background = PiTheme.chatBg
+        surface.applySettings()
 
         statusLabel.foreground = PiTheme.mutedFg()
         branchLabel.foreground = PiTheme.mutedFg()
@@ -2380,17 +2311,10 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
             }
         }
 
-        rebuildEmptyState()
         if (messages.isEmpty()) showEmptyState() else rebuildTranscript()
         setStatus(statusSummary())
         revalidate()
         repaint()
-    }
-
-    private fun rebuildEmptyState() {
-        center.remove(emptyState)
-        emptyState = buildEmptyState()
-        center.add(emptyState, CARD_EMPTY)
     }
 
     /**
@@ -2431,7 +2355,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     fun loadedSessionPathForTest(): String? = loadedSessionPath
 
     @org.jetbrains.annotations.TestOnly
-    fun transcriptChildCountForTest(): Int = transcript.componentCount
+    fun transcriptChildCountForTest(): Int = surface.renderedCount()
 
     /** What the switch put on screen before yielding the EDT. */
     @org.jetbrains.annotations.TestOnly
@@ -2587,6 +2511,19 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
          * stay in front and the mentions become its arguments; anywhere else the leading `@path`
          * would demote the command to ordinary prose.
          */
+        /**
+         * Whether the conversation renders in the browser.
+         *
+         * `-Dpi.gui.forceSwingTranscript=true` pins the Swing view. It exists because JCEF is not
+         * universally available — some distributions omit it, users can switch it off, and a
+         * Chromium fault should not cost someone their chat history — and it is how the Swing
+         * fallback gets exercised in tests.
+         */
+        fun useWebTranscript(): Boolean =
+            PiWebView.isAvailable() && !java.lang.Boolean.getBoolean(FORCE_SWING_PROPERTY)
+
+        const val FORCE_SWING_PROPERTY = "pi.gui.forceSwingTranscript"
+
         fun composeMessage(text: String, mentions: String): String {
             val parts = if (text.startsWith("/")) listOf(text, mentions) else listOf(mentions, text)
             return parts.filter { it.isNotBlank() }.joinToString(" ")

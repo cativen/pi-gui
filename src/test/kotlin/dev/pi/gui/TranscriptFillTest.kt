@@ -29,6 +29,9 @@ class TranscriptFillTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
+        // Drives the Swing transcript's own scroll pane and viewport, so it has to run against
+        // the Swing surface rather than whichever one the IDE would pick.
+        System.setProperty(ChatPanel.FORCE_SWING_PROPERTY, "true")
         // A switch eagerly boots pi; a test-spawned agent outlives the JVM.
         savedPiPath = PiSettings.getInstance().piPath
         PiSettings.getInstance().piPath = "C:/no/such/pi-executable.exe"
@@ -37,6 +40,7 @@ class TranscriptFillTest : BasePlatformTestCase() {
 
     override fun tearDown() {
         try {
+            System.clearProperty(ChatPanel.FORCE_SWING_PROPERTY)
             PiSettings.getInstance().piPath = savedPiPath ?: ""
             com.intellij.openapi.util.io.FileUtil.delete(dir)
         } finally {

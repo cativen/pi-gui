@@ -25,7 +25,11 @@ import javax.swing.JPanel
  * scheme handler, or unpacking to a temp directory) add moving parts for no gain when the whole
  * app is three small files.
  */
-class PiWebView(private val onMessage: (JsonObject) -> Unit) : JPanel(BorderLayout()), Disposable {
+class PiWebView(
+    /** Page under `/web`, without the extension: "transcript" or "index". */
+    private val page: String,
+    private val onMessage: (JsonObject) -> Unit,
+) : JPanel(BorderLayout()), Disposable {
 
     private val log = Logger.getInstance(PiWebView::class.java)
     private val gson = Gson()
@@ -107,20 +111,20 @@ class PiWebView(private val onMessage: (JsonObject) -> Unit) : JPanel(BorderLayo
     }
 
     private fun page(): String {
-        val html = resource("/web/index.html")
+        val html = resource("/web/$page.html")
         val css = resource("/web/app.css")
-        val js = resource("/web/app.js")
+        val js = resource("/web/$page.js")
         return html
             .replace(
                 """<link rel="stylesheet" href="app.css">""",
                 "<style>\n$css\n</style>",
             )
             .replace(
-                """<script src="app.js"></script>""",
+                """<script src="$page.js"></script>""",
                 "<script>\n$js\n</script>",
             )
-            // Inlining makes the original external-source policy wrong; the document still
-            // reaches no network origin at all, which is what the policy is there to guarantee.
+            // Inlining makes an external-source policy wrong; the document still reaches no
+            // network origin at all, which is what the policy is there to guarantee.
             .replace(
                 """default-src 'none'; style-src 'unsafe-inline' 'self'; script-src 'self'; img-src data:;""",
                 """default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;""",

@@ -27,6 +27,9 @@ class SessionSwitchLandingTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
+        // Drives the Swing transcript's own scroll pane and viewport, so it has to run against
+        // the Swing surface rather than whichever one the IDE would pick.
+        System.setProperty(ChatPanel.FORCE_SWING_PROPERTY, "true")
         // Never let a switch boot a real agent: a test-spawned pi outlives the JVM.
         savedPiPath = PiSettings.getInstance().piPath
         PiSettings.getInstance().piPath = "C:/no/such/pi-executable.exe"
@@ -35,6 +38,7 @@ class SessionSwitchLandingTest : BasePlatformTestCase() {
 
     override fun tearDown() {
         try {
+            System.clearProperty(ChatPanel.FORCE_SWING_PROPERTY)
             PiSettings.getInstance().piPath = savedPiPath ?: ""
             com.intellij.openapi.util.io.FileUtil.delete(dir)
         } finally {

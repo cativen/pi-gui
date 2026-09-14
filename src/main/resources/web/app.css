@@ -321,3 +321,19 @@ pre.code {
 .cmd-desc { color: var(--muted-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cmd.sel .cmd-desc { color: var(--on-accent); opacity: 0.85; }
 .cmd-empty { padding: 6px 8px; color: var(--muted-fg); }
+
+/* --------------------------------------------------- transcript-only shell */
+
+body.transcript-only #scroller { height: 100%; padding: 0 12px; }
+
+.earlier-row { display: flex; justify-content: center; padding: 6px 0 10px; }
+.load-earlier {
+  background: var(--input-bg);
+  color: var(--text-fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 12px;
+  font: var(--font);
+  cursor: default;
+}
+.load-earlier:hover { background: var(--border); }
