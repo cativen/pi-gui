@@ -33,6 +33,8 @@ import dev.pi.gui.providers.ProvidersRegistry
 import dev.pi.gui.rpc.PiJson
 import dev.pi.gui.rpc.PiRpcClient
 import dev.pi.gui.rpc.StreamingAssistant
+import dev.pi.gui.rpc.asDoubleOrNull
+import dev.pi.gui.rpc.asLongOrNull
 import dev.pi.gui.rpc.asStringOrNull
 import dev.pi.gui.rpc.getAsJsonObjectOrNull
 import dev.pi.gui.session.SessionStore
@@ -49,6 +51,7 @@ import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
+import java.awt.Point
 import java.awt.RenderingHints
 import java.awt.datatransfer.Clipboard
 import java.awt.datatransfer.DataFlavor
@@ -109,6 +112,16 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     ).apply {
         toolTipText = PiBundle.message("chat.stop")
     }
+    private val compactButton = PiButton(
+        null, AllIcons.Actions.Collapseall, PiButton.Style.SECONDARY,
+    ).apply {
+        toolTipText = PiBundle.message("chat.compact")
+    }
+
+    /** Share of the model's context window the session currently occupies, when pi reports it. */
+    private val contextLabel = JBLabel("")
+    private var contextPercent: Double? = null
+
     private val statusLabel = JBLabel(" ")
     private val branchLabel = JBLabel("")
 
@@ -125,6 +138,13 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     /** Lines of message content the transcript window may lay out at once. */
     private var visibleLineBudget = INITIAL_LINE_BUDGET
+
+    /** Bumped whenever the transcript is replaced, so stale chunk fills drop themselves. */
+    private var fillGeneration = 0
+    /** The "load earlier" row currently on top, if any; moved as the window grows. */
+    private var loadEarlierRow: JComponent? = null
+    /** Components produced by the last synchronous rebuild, before any chunk was filled in. */
+    private var eagerComponentCount = 0
 
     private val attachments = mutableListOf<Attachment>()
     private val attachmentStrip = AttachmentStrip { removeAttachment(it) }
@@ -340,14 +360,24 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         input.emptyText.text = PiBundle.message("chat.input.placeholder")
         installInputKeys()
 
-        val inputScroll = JBScrollPane(
-            input,
+        inputScroll = JBScrollPane(
+            null,
             ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
             ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER,
         ).apply {
             border = JBUI.Borders.empty()
             isOpaque = false
             viewport.isOpaque = false
+        }
+
+        // The composer starts without a scroll pane and grows with what is typed. A viewport
+        // around a wrapping text area re-wraps the whole document on every keystroke to answer
+        // the preferred-size query, which allocated ~121 KB per character against ~25 KB for the
+        // bare area — garbage that turns typing into a stutter once the heap is under pressure.
+        // The scroll pane is therefore only installed once the message outgrows the composer.
+        inputHost = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(input, BorderLayout.CENTER)
         }
 
         // Rounded shell around the text area; the outline brightens while the field has focus.
@@ -371,8 +401,9 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                 padding = JBUI.insets(8, 10),
             )
             preferredSize = Dimension(100, JBUI.scale(84))
-            add(inputScroll, BorderLayout.CENTER)
+            add(inputHost, BorderLayout.CENTER)
         }
+        composerShell = shell
         input.addFocusListener(object : java.awt.event.FocusAdapter() {
             override fun focusGained(e: java.awt.event.FocusEvent) = shell.repaint()
             override fun focusLost(e: java.awt.event.FocusEvent) {
@@ -709,13 +740,92 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         row.add(Box.createHorizontalStrut(JBUI.scale(6)))
         row.add(modelCombo)
         row.add(Box.createHorizontalStrut(JBUI.scale(6)))
+        contextLabel.foreground = PiTheme.mutedFg()
+        contextLabel.font = contextLabel.font.deriveFont(contextLabel.font.size2D - 1f)
+        compactButton.addActionListener { compactNow() }
+        updateContextLabel()
+
         row.add(thinkingCombo)
         row.add(Box.createHorizontalGlue())
+        row.add(contextLabel)
+        row.add(Box.createHorizontalStrut(JBUI.scale(6)))
+        row.add(compactButton)
+        row.add(Box.createHorizontalStrut(JBUI.scale(6)))
         row.add(stopButton)
         row.add(Box.createHorizontalStrut(JBUI.scale(6)))
         row.add(sendButton)
         return row
     }
+
+    // ------------------------------------------------------- context / compaction
+
+    /**
+     * Compact on demand, but refuse when there is barely anything to compact.
+     *
+     * The percentage is re-read instead of trusting the label: compaction costs a model call and
+     * discards detail, so the decision is made on what the agent reports right now rather than on
+     * whatever the footer happened to be showing.
+     */
+    private fun compactNow() {
+        withAgent("compact") { client ->
+            client.getSessionStats { response ->
+                val data = response.getAsJsonObjectOrNull("data")
+                onEdt {
+                    applyContextUsage(data)
+                    val percent = contextPercent
+                    if (isTooSmallToCompact(percent)) {
+                        appendMessage(
+                            PiMessage.Notice(
+                                PiBundle.message(
+                                    "compact.tooSmall",
+                                    formatContextPercent(percent!!),
+                                    COMPACT_MIN_PERCENT.toInt(),
+                                )
+                            )
+                        )
+                        return@onEdt
+                    }
+                    phase = AgentPhase.Compacting("manual")
+                    setStatus(statusSummary())
+                    client.compact { r -> reportIfFailed("compact", r) }
+                }
+            }
+        }
+    }
+
+    /** Ask the running agent where the context stands; a no-op when nothing is running. */
+    private fun refreshContextUsage() {
+        val client = rpc?.takeIf { it.isRunning } ?: return
+        client.getSessionStats { response ->
+            val data = response.getAsJsonObjectOrNull("data")
+            onEdt { applyContextUsage(data) }
+        }
+    }
+
+    private fun applyContextUsage(data: JsonObject?) {
+        val usage = data?.getAsJsonObjectOrNull("contextUsage")
+        contextPercent = usage?.get("percent")?.asDoubleOrNull()
+        val tokens = usage?.get("tokens")?.asLongOrNull()
+        val window = usage?.get("contextWindow")?.asLongOrNull()
+        contextLabel.toolTipText = if (tokens != null && window != null) {
+            PiBundle.message(
+                "chat.context.tooltip",
+                SessionStore.formatTokens(tokens),
+                SessionStore.formatTokens(window),
+            )
+        } else {
+            PiBundle.message("chat.compact")
+        }
+        updateContextLabel()
+    }
+
+    private fun updateContextLabel() {
+        val percent = contextPercent
+        contextLabel.text = percent?.let { PiBundle.message("chat.context", formatContextPercent(it)) }.orEmpty()
+        contextLabel.foreground = PiTheme.mutedFg()
+        contextLabel.isVisible = percent != null
+    }
+
 
     /** Shows dimmed placeholder text while a combo has no items yet. */
     private fun placeholderRenderer(placeholder: String): javax.swing.DefaultListCellRenderer =
@@ -784,13 +894,136 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
         // Both the text and the caret decide what is being completed, and their update order
         // relative to this listener is not guaranteed — re-check once the event has settled.
-        val refresh = { SwingUtilities.invokeLater { updateCommandPopup() } }
         input.document.addDocumentListener(object : javax.swing.event.DocumentListener {
-            override fun insertUpdate(e: javax.swing.event.DocumentEvent) { refresh() }
-            override fun removeUpdate(e: javax.swing.event.DocumentEvent) { refresh() }
+            override fun insertUpdate(e: javax.swing.event.DocumentEvent) = onComposerChanged()
+            override fun removeUpdate(e: javax.swing.event.DocumentEvent) = onComposerChanged()
             override fun changedUpdate(e: javax.swing.event.DocumentEvent) {}
         })
-        input.addCaretListener { refresh() }
+        input.addCaretListener { onComposerChanged() }
+    }
+
+    /**
+     * One coalesced follow-up per keystroke.
+     *
+     * A character fires both listeners above, and the text area's view has not caught up with the
+     * document by the time they run — reading the composer's height there yields the previous
+     * layout. Deferring once settles both problems: the view is current, and the two listeners
+     * collapse into a single runnable instead of two.
+     */
+    private fun onComposerChanged() {
+        if (composerUpdateQueued) return
+        composerUpdateQueued = true
+        SwingUtilities.invokeLater {
+            composerUpdateQueued = false
+            if (disposed) return@invokeLater
+            updateComposerHeight()
+            // Ordinary prose needs no completion work at all.
+            if (commandPopup.isShowing || composerPrefix(1) == "/") updateCommandPopup()
+        }
+    }
+
+    private var composerUpdateQueued = false
+
+    /** Set while a popup refresh is already queued, so one keystroke posts at most one. */
+    private var commandPopupUpdateQueued = false
+
+    private lateinit var inputScroll: JBScrollPane
+    private lateinit var inputHost: JPanel
+    private var composerShell: JComponent? = null
+    /** True while the message is long enough to need the scroll pane. */
+    private var composerScrolling = false
+
+    /**
+     * A keystroke fires both listeners above, so an un-coalesced refresh posted two runnables per
+     * character. Ordinary prose does not need either: unless the composer holds a command, or a
+     * popup is open that may have to close, there is nothing for the update to do — so the common
+     * case never reaches the event queue at all.
+     */
+    private fun scheduleCommandPopupUpdate() {
+        if (!commandPopup.isShowing && composerPrefix(1) != "/") return
+        if (commandPopupUpdateQueued) return
+        commandPopupUpdateQueued = true
+        SwingUtilities.invokeLater {
+            commandPopupUpdateQueued = false
+            updateCommandPopup()
+        }
+    }
+
+    /**
+     * The first [max] characters of the composer.
+     *
+     * `JTextComponent.getText()` copies the entire document, so reading it on every keystroke
+     * allocated in proportion to what the user had already typed — 88 KB per character into a
+     * 1000-character message. Nothing here needs more than the leading command token, and under
+     * memory pressure that garbage is what turns typing into a stutter.
+     */
+    /**
+     * Resize the composer to fit what has been typed, switching to a scroll pane only once the
+     * message outgrows [COMPOSER_MAX_HEIGHT].
+     *
+     * The switch has hysteresis: dropping back to the bare area needs the content to fall a whole
+     * row below the threshold, so a message hovering on the boundary cannot re-parent the focused
+     * text area on every keystroke.
+     */
+    private fun updateComposerHeight() {
+        val shell = composerShell ?: return
+        val padding = shell.insets.let { it.top + it.bottom }
+        val minHeight = JBUI.scale(COMPOSER_MIN_HEIGHT)
+        val maxHeight = JBUI.scale(COMPOSER_MAX_HEIGHT)
+        // Cheap on a bare text area; it is the viewport around one that makes this expensive.
+        val content = input.preferredSize.height
+
+        val rowHeight = input.getFontMetrics(input.font).height.coerceAtLeast(1)
+        val wantScroll = when {
+            content > maxHeight -> true
+            composerScrolling -> content > maxHeight - rowHeight
+            else -> false
+        }
+        if (wantScroll != composerScrolling) setComposerScrolling(wantScroll)
+
+        val target = content.coerceIn(minHeight, maxHeight) + padding
+        if (shell.preferredSize.height != target) {
+            shell.preferredSize = Dimension(100, target)
+            shell.revalidate()
+        }
+    }
+
+    /**
+     * Move [input] between the bare host and the scroll pane, keeping focus and caret intact —
+     * re-parenting a focused component otherwise drops the keystroke that triggered it.
+     */
+    private fun setComposerScrolling(scrolling: Boolean) {
+        composerScrolling = scrolling
+        val hadFocus = input.isFocusOwner
+        val caret = input.caretPosition
+        val shell = composerShell ?: return
+
+        if (scrolling) {
+            inputHost.remove(input)
+            inputScroll.setViewportView(input)
+            shell.remove(inputHost)
+            shell.add(inputScroll, BorderLayout.CENTER)
+        } else {
+            inputScroll.viewport.view = null
+            shell.remove(inputScroll)
+            inputHost.add(input, BorderLayout.CENTER)
+            shell.add(inputHost, BorderLayout.CENTER)
+        }
+        shell.revalidate()
+        shell.repaint()
+        runCatching { input.caretPosition = caret }
+        if (hadFocus) input.requestFocusInWindow()
+    }
+
+    private fun composerPrefix(max: Int): String {
+        val document = input.document
+        val length = minOf(max, document.length)
+        if (length <= 0) return ""
+        return try {
+            document.getText(0, length)
+        } catch (e: javax.swing.text.BadLocationException) {
+            ""
+        }
     }
 
     /**
@@ -835,7 +1068,8 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     private var lastCompletion: CommandCompletion = CommandCompletion.Hidden
 
     private fun computeCompletion(): CommandCompletion {
-        val query = PiCommand.queryAt(input.text, input.caretPosition)
+        // Only the leading token can be a command, so the rest of the message is never read.
+        val query = PiCommand.queryAt(composerPrefix(COMMAND_PREFIX_CHARS), input.caretPosition)
             ?: return CommandCompletion.Hidden
         // The built-ins are static, so there is always something to show immediately.
         return CommandCompletion.Matches(
@@ -1107,6 +1341,8 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         stopAgent(expectRestart = true)
         session = info
         messages.clear()
+        // Another session's percentage must not linger while the new one loads.
+        applyContextUsage(null)
         resetTranscriptWindow()
         setStatus(PiBundle.message("status.loading"))
         val file = File(info.filePath)
@@ -1138,6 +1374,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         commandPopup.hide()
         // Skills and extensions may have been added since; re-ask rather than serve a stale list.
         commandRegistry.invalidate()
+        applyContextUsage(null)
         session = null
         loadedSessionPath = null
         messages.clear()
@@ -1172,23 +1409,83 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
      * switch. Bounding by lines keeps that at one screenful no matter how big each message is.
      */
     private fun rebuildTranscript() {
+        // Any fill still queued belongs to the transcript being replaced.
+        fillGeneration++
         transcript.removeAll()
         streamingComponent = null
 
         val hidden = hiddenMessageCount()
-        if (hidden > 0) transcript.add(buildLoadEarlierRow(hidden))
+        loadEarlierRow = if (hidden > 0) buildLoadEarlierRow(hidden).also { transcript.add(it) } else null
         messages.drop(hidden).forEach { transcript.add(MessageRenderer.render(project, it)) }
 
         if (messages.isEmpty()) showEmptyState() else showTranscript()
+        eagerComponentCount = transcript.componentCount
         editsPanel.update(messages)
         transcript.revalidate()
         transcript.repaint()
+        scheduleTranscriptFill(fillGeneration)
     }
 
-    /** Window state; reset whenever a different conversation is shown. */
+    /**
+     * Window state; reset whenever a different conversation is shown.
+     *
+     * Only a screenful is rendered up front. Each message costs a fixed ~2.5ms to build —
+     * an HTML parse and document construction, near enough independent of its size — so
+     * materialising the whole 60-message window synchronously put 150-270ms on the EDT for
+     * every session switch, while the viewport showed about three messages. The rest of the
+     * window is filled in afterwards by [scheduleTranscriptFill].
+     */
     private fun resetTranscriptWindow() {
-        visibleLimit = VISIBLE_PAGE_SIZE
-        visibleLineBudget = INITIAL_LINE_BUDGET
+        visibleLimit = EAGER_PAGE_SIZE
+        visibleLineBudget = EAGER_LINE_BUDGET
+    }
+
+    /**
+     * Grow the rendered window back up to the full page, a chunk per event-queue turn.
+     *
+     * The work is the same; what changes is that no single turn blocks long enough to be seen.
+     * Anything queued for a previous transcript is dropped by the generation check, so clicking
+     * quickly through sessions never stacks up fills.
+     */
+    private fun scheduleTranscriptFill(generation: Int) {
+        if (visibleLimit >= VISIBLE_PAGE_SIZE && visibleLineBudget >= INITIAL_LINE_BUDGET) return
+        if (hiddenMessageCount() == 0) return
+        SwingUtilities.invokeLater {
+            if (disposed || generation != fillGeneration) return@invokeLater
+            val before = hiddenMessageCount()
+            visibleLimit = minOf(visibleLimit + FILL_CHUNK_MESSAGES, VISIBLE_PAGE_SIZE)
+            visibleLineBudget = minOf(visibleLineBudget + FILL_CHUNK_LINES, INITIAL_LINE_BUDGET)
+            val after = hiddenMessageCount()
+            if (after < before) prependMessages(firstIndex = after, untilIndex = before)
+            scheduleTranscriptFill(generation)
+        }
+    }
+
+    /**
+     * Insert `messages[firstIndex until untilIndex]` above what is already rendered.
+     *
+     * Growing the window by re-running [rebuildTranscript] would re-render everything already on
+     * screen on every chunk, turning a linear fill into a quadratic one.
+     */
+    private fun prependMessages(firstIndex: Int, untilIndex: Int) {
+        val pinned = isNearBottom()
+        // Drop the stale "load earlier" row before inserting; a fresh one goes back on top.
+        if (transcript.componentCount > 0 && loadEarlierRow != null) {
+            transcript.remove(loadEarlierRow)
+            loadEarlierRow = null
+        }
+        for (i in untilIndex - 1 downTo firstIndex) {
+            transcript.add(MessageRenderer.render(project, messages[i]), 0)
+        }
+        if (firstIndex > 0) {
+            val row = buildLoadEarlierRow(firstIndex)
+            loadEarlierRow = row
+            transcript.add(row, 0)
+        }
+        transcript.revalidate()
+        transcript.repaint()
+        // Content grew above the viewport; without re-pinning the view would drift upward.
+        if (pinned) scrollToBottom()
     }
 
     /**
@@ -1298,10 +1595,28 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         if (isNearBottom()) scrollToBottom()
     }
 
+    /**
+     * Jump straight to the newest message.
+     *
+     * The viewport is moved directly rather than through `verticalScrollBar.value`, because the
+     * platform's scrollbar is a `JBScrollBar` whose `setValue` runs the IDE's smooth-scrolling
+     * interpolator. That turned every session switch into an animated glide down the whole
+     * transcript — on a long session ~30 000px of travel, repainting the component tree on every
+     * frame, purely to land somewhere it could have jumped to in one step. `JViewport` has no
+     * such animation, so the destination is identical and the travel disappears.
+     */
     private fun scrollToBottom() {
         SwingUtilities.invokeLater {
-            val bar = scrollPane.verticalScrollBar
-            bar.value = bar.maximum
+            val viewport = scrollPane.viewport
+            val view = viewport.view ?: return@invokeLater
+            // The target depends on the transcript's final height, so let pending layout settle.
+            scrollPane.validate()
+            // `preferredSize` is the fallback for the window between rebuilding the transcript and
+            // the layout pass landing: `height` is still the old content's, which would leave the
+            // view short of the newest message.
+            val contentHeight = maxOf(view.height, view.preferredSize.height)
+            val y = (contentHeight - viewport.extentSize.height).coerceAtLeast(0)
+            viewport.viewPosition = Point(0, y)
         }
     }
 
@@ -1479,6 +1794,9 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                 refreshModels(client)
                 // A live agent is the authoritative source, and costs nothing extra to ask.
                 commandRegistry.refreshFrom(client) { if (!disposed) updateCommandPopup() }
+                // Resuming a session inherits its context; show where it stands before the
+                // first prompt rather than leaving the footer blank until the next reply.
+                refreshContextUsage()
             }
         }
     }
@@ -1835,6 +2153,9 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                 phase = AgentPhase.WaitingModel
                 appendMessage(PiMessage.Notice(PiBundle.message("message.contextCompacted")))
                 setStatus(statusSummary())
+                // pi reports a null percentage until the next assistant reply, so the footer
+                // clears here rather than keeping the pre-compaction figure on screen.
+                refreshContextUsage()
             }
 
             "auto_retry_start" -> {
@@ -1869,6 +2190,8 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                 repaintTimer.stop()
                 flushStreaming()
                 setStatus(statusSummary())
+                // The turn just grew the context; the footer figure is stale until re-read.
+                refreshContextUsage()
                 // pi writes the session file as the run completes; refresh the sidebar.
                 onSessionChanged?.invoke()
             }
@@ -1951,6 +2274,8 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     private fun setRunning(running: Boolean) {
         isRunning = running
+        // Compacting mid-turn fights the run that is already using the context.
+        compactButton.isEnabled = !running
         sendButton.isEnabled = true
         // Icon-only button: relabelling here used to squeeze icon + text into the old fixed
         // 28px square and clip both. The tooltip carries the queue/send wording instead.
@@ -2016,6 +2341,9 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
         sendButton.toolTipText = if (isRunning) PiBundle.message("chat.queue") else PiBundle.message("chat.send")
         stopButton.toolTipText = PiBundle.message("chat.stop")
+        compactButton.toolTipText = PiBundle.message("chat.compact")
+        contextLabel.font = PiTheme.uiFont().deriveFont(PiTheme.uiFont().size2D - 1f)
+        updateContextLabel()
         providerCombo.toolTipText = PiBundle.message("chat.provider")
         modelCombo.toolTipText = PiBundle.message("chat.model")
         thinkingCombo.toolTipText = PiBundle.message("chat.thinking")
@@ -2105,6 +2433,10 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     @org.jetbrains.annotations.TestOnly
     fun transcriptChildCountForTest(): Int = transcript.componentCount
 
+    /** What the switch put on screen before yielding the EDT. */
+    @org.jetbrains.annotations.TestOnly
+    fun eagerComponentCountForTest(): Int = eagerComponentCount
+
     @org.jetbrains.annotations.TestOnly
     fun inputForTest(): JBTextArea = input
 
@@ -2116,6 +2448,15 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     @org.jetbrains.annotations.TestOnly
     fun clearAttachmentsForTest() = clearAttachments()
+
+    @org.jetbrains.annotations.TestOnly
+    fun applyContextUsageForTest(data: JsonObject?) = applyContextUsage(data)
+
+    @org.jetbrains.annotations.TestOnly
+    fun contextLabelForTest(): JBLabel = contextLabel
+
+    @org.jetbrains.annotations.TestOnly
+    fun compactButtonForTest(): PiButton = compactButton
 
     @org.jetbrains.annotations.TestOnly
     fun commandPopupForTest(): CommandPopup = commandPopup
@@ -2140,6 +2481,27 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     @org.jetbrains.annotations.TestOnly
     fun setRunningForTest(running: Boolean) = setRunning(running)
+
+    @org.jetbrains.annotations.TestOnly
+    fun tickForTest() { if (isRunning) setStatus(statusSummary()); refreshBranch() }
+
+    @org.jetbrains.annotations.TestOnly
+    fun editsUpdateForTest() = editsPanel.update(messages)
+
+    /** Drives one real streaming flush, including revalidate and the bottom re-pin. */
+    @org.jetbrains.annotations.TestOnly
+    fun flushStreamingForTest(text: String) {
+        streaming.seedForTest(dev.pi.gui.model.PiMessage.Assistant(
+            blocks = mutableListOf<dev.pi.gui.model.ContentBlock>(
+                dev.pi.gui.model.ContentBlock.Text(text)
+            ),
+            model = "m",
+        ))
+        flushStreaming()
+    }
+
+    @org.jetbrains.annotations.TestOnly
+    fun scrollToBottomForTest() = scrollToBottom()
 
     /** Applies a parsed `get_available_models` payload exactly as the live path would. */
     @org.jetbrains.annotations.TestOnly
@@ -2167,12 +2529,52 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         private const val VISIBLE_PAGE_SIZE = 60
 
         /**
+         * Below this share of the context window there is nothing worth compacting: the run costs
+         * a model call and throws away detail, so the button says so instead of doing it.
+         */
+        const val COMPACT_MIN_PERCENT = 20.0
+
+        /**
+         * A null percentage means pi has no figure yet — no model bound, or straight after a
+         * compaction. Unknown is not proof of "too small", so it is allowed through rather than
+         * blocking a legitimate compaction.
+         */
+        fun isTooSmallToCompact(percent: Double?): Boolean =
+            percent != null && percent < COMPACT_MIN_PERCENT
+
+        /** Sub-1% shows as `<1%`, so a session with real content never reads as an empty one. */
+        fun formatContextPercent(percent: Double): String =
+            if (percent > 0.0 && percent < 1.0) "<1%" else "${Math.round(percent)}%"
+
+        /**
          * How many lines of message content the window may lay out initially, and how much a
          * "load earlier" click adds. ~130µs per line of HTML parse+layout puts 2000 lines at a
          * roughly quarter-second one-time cost on switch; a heavy session before this budget
          * measured 4.7s of frozen EDT.
          */
         private const val INITIAL_LINE_BUDGET = 2_000
+
+        /**
+         * Rendered synchronously on a session switch — roughly a screenful. Everything past this
+         * arrives via the chunked fill, which keeps the visible switch at a few milliseconds.
+         */
+        /**
+         * How much of the composer the completion logic reads. No command name approaches this,
+         * and a caret past it means the user is in the message body, where `queryAt` returns
+         * nothing anyway.
+         */
+        private const val COMMAND_PREFIX_CHARS = 256
+
+        /** Composer bounds, in unscaled pixels: roughly three rows up to about ten. */
+        private const val COMPOSER_MIN_HEIGHT = 60
+        private const val COMPOSER_MAX_HEIGHT = 180
+
+        private const val EAGER_PAGE_SIZE = 8
+        private const val EAGER_LINE_BUDGET = 400
+
+        /** Per event-queue turn during the fill; small enough to stay invisible. */
+        private const val FILL_CHUNK_MESSAGES = 6
+        private const val FILL_CHUNK_LINES = 300
         private const val PAGE_LINE_BUDGET = 4_000
 
         /** Long enough to absorb a burst of session switches, short enough to stay invisible. */

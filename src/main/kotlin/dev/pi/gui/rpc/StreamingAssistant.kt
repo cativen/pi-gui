@@ -29,6 +29,10 @@ class StreamingAssistant {
 
     fun end() { current = null }
 
+    /** Seeds a partial reply so the streaming render path can be driven without an agent. */
+    @org.jetbrains.annotations.TestOnly
+    fun seedForTest(message: PiMessage.Assistant) { current = message }
+
     /** Apply one `assistantMessageEvent`. Returns true when the UI should repaint. */
     fun applyDelta(event: JsonObject): Boolean {
         val msg = current ?: PiMessage.Assistant().also { current = it }

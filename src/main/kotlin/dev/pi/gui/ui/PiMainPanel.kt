@@ -68,8 +68,10 @@ class PiMainPanel(private val project: Project) : JPanel(BorderLayout()), Dispos
         project.messageBus.connect(this).subscribe(
             ToolWindowManagerListener.TOPIC,
             object : ToolWindowManagerListener {
-                override fun toolWindowShown(id: String, toolWindow: ToolWindow) {
-                    if (id == PiToolWindowFactory.TOOL_WINDOW_ID) chat.ensureAgentRunning()
+                // The (String, ToolWindow) overload is scheduled for removal; with an open-ended
+                // until-build this plugin would break on the IDE that drops it.
+                override fun toolWindowShown(toolWindow: ToolWindow) {
+                    if (toolWindow.id == PiToolWindowFactory.TOOL_WINDOW_ID) chat.ensureAgentRunning()
                 }
             },
         )

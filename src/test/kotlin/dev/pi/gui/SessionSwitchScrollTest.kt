@@ -261,9 +261,13 @@ class SessionSwitchScrollTest : BasePlatformTestCase() {
             val (worstStallMs, longStalls) = heartbeat.stop()
             g.dispose()
             println("switching: worstEdtStall=${worstStallMs}ms longStalls=$longStalls worstSwitch=${worstSwitchMs}ms")
+            // 400ms was loose enough to pass while every switch visibly froze the IDE. A
+            // switch now renders one screenful and fills the rest in chunks, so the longest
+            // single stall is tens of milliseconds; 150 leaves room for a slow CI box without
+            // letting the old behaviour back in.
             assertTrue(
                 "EDT stalled ${worstStallMs}ms during session switching ($longStalls stalls > 400ms)",
-                worstStallMs < 400,
+                worstStallMs < 150,
             )
             assertTrue("a single session switch took ${worstSwitchMs}ms", worstSwitchMs < 4_000)
         } finally {

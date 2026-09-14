@@ -89,12 +89,19 @@ class HtmlBlock(
     /**
      * The width the content wants when nothing forces it to wrap. Used by the user bubble to
      * hug short messages instead of stretching to the transcript's full width.
+     *
+     * The extra pixel is load-bearing. A view given an allocation of exactly its preferred span
+     * still wraps — it needs strictly more — while `heightForWidth` measures that same width as
+     * unwrapped. A bubble sized to the bare span therefore painted one line taller than it was
+     * measured, clipping its last line. The shortfall is a uniform 1px across every font size and
+     * script, because it is a `>` versus `>=` boundary rather than accumulated rounding.
      */
     fun naturalWidth(): Int {
         return try {
             val root: View = (ui as TextUI).getRootView(this)
             root.setSize(Float.MAX_VALUE, Float.MAX_VALUE)
-            Math.ceil(root.getPreferredSpan(View.X_AXIS).toDouble()).toInt() + insets.left + insets.right
+            Math.ceil(root.getPreferredSpan(View.X_AXIS).toDouble()).toInt() + 1 +
+                insets.left + insets.right
         } catch (e: Exception) {
             preferredSize.width
         }

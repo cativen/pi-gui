@@ -49,22 +49,57 @@ intellijPlatform {
         name = "Pi GUI"
         version = project.version.toString()
         description = """
-            <p>Native JetBrains UI for the <b>pi</b> AI coding agent.</p>
-            <p>Chat with pi directly inside the IDE: browse and resume sessions, watch streaming
-            responses, inspect tool calls, and switch models &mdash; all rendered with native
-            IntelliJ components (no embedded browser).</p>
-            <p>Requires the <code>pi</code> CLI on your machine:
-            <code>npm i -g @earendil-works/pi-coding-agent</code></p>
+            <p>A native JetBrains UI for the <b>pi</b> AI coding agent. Not affiliated with
+            JetBrains or with the authors of pi.</p>
+
+            <p>Chat with pi inside the IDE. The interface is built entirely from IntelliJ
+            components &mdash; there is no embedded browser and no local web server &mdash; and
+            fenced code is rendered by the IDE's own lexers, so it gets real syntax highlighting.</p>
+
+            <h4>What it does</h4>
+            <ul>
+              <li><b>Sessions</b> &mdash; every pi session recorded for the current project, read
+                  straight from disk, so history opens without starting an agent.</li>
+              <li><b>Streaming chat</b> &mdash; assistant text, thinking blocks and tool calls
+                  arrive live, each collapsible so the conversation stays readable.</li>
+              <li><b>Slash commands</b> &mdash; type <code>/</code> to complete pi's built-ins
+                  plus your own extension commands, prompt templates and skills.</li>
+              <li><b>Edits</b> &mdash; the files a conversation actually changed, with per-file
+                  line counts; click one to open the IDE's own diff viewer.</li>
+              <li><b>Attachments</b> &mdash; drag, paste or pick files; images go to the model
+                  inline, anything else is referenced by path so it stays out of the context
+                  window.</li>
+              <li><b>Context meter</b> &mdash; how much of the context window the session
+                  occupies, with one-click compaction.</li>
+              <li><b>Providers, models and thinking level</b> &mdash; switched from the composer.</li>
+              <li><b>Send file path</b> &mdash; right-click any file, folder or selection to drop
+                  it into the composer as an <code>@mention</code>.</li>
+            </ul>
+
+            <p>Available in English, Simplified Chinese and Traditional Chinese.</p>
+
+            <h4>Requirements</h4>
+            <p>The <code>pi</code> CLI must be installed and authenticated on your machine; this
+            plugin drives it, it does not bundle or replace it:</p>
+            <p><code>npm i -g @earendil-works/pi-coding-agent</code></p>
         """.trimIndent()
         changeNotes = """
             <h4>1.0.0</h4>
+            <p>First public release.</p>
             <ul>
               <li>Native chat tool window for the pi coding agent &mdash; no embedded browser.</li>
-              <li>Browse and resume sessions recorded for the current project.</li>
+              <li>Browse, resume and delete the sessions recorded for the current project.</li>
               <li>Streaming responses with collapsible thinking blocks, tool calls and results.</li>
               <li>Markdown rendering with IDE syntax highlighting for fenced code.</li>
-              <li>Model and thinking-level switching; steering while a run is in flight.</li>
-              <li>"Send File Path to Pi GUI" from the project view, editor and editor tabs.</li>
+              <li><code>/</code> command completion: pi's built-ins, extension commands, prompt
+                  templates and skills.</li>
+              <li>Edits panel listing the files a conversation changed, opening the IDE diff viewer.</li>
+              <li>Attachments by drag, paste or file picker, including inline images.</li>
+              <li>Context-usage meter with on-demand compaction.</li>
+              <li>Provider, model and thinking-level switching; steering while a run is in flight.</li>
+              <li>Skills and packages management from the settings dialog.</li>
+              <li>"Send File Path to Pi GUI" from the project view, editor, tabs and navigation bar.</li>
+              <li>English, Simplified Chinese and Traditional Chinese.</li>
             </ul>
         """.trimIndent()
         ideaVersion {

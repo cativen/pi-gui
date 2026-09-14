@@ -40,14 +40,47 @@ class AnalyticHeightTest : BasePlatformTestCase() {
         )
     }
 
+    /**
+     * The analytic path exists to avoid an O(document) HTML layout pass, so that is what is
+     * asserted — relative to the very pipeline it replaces.
+     *
+     * A wall-clock budget flaked: it timed construction (which syntax-highlights every line) and
+     * a cold JIT inside the same window, and 50 repeats at one width were 49 cache hits, since
+     * `heightForWidth` memoises per width. Both sides of a ratio move together with machine speed
+     * and load, so this holds on a busy laptop and on CI alike.
+     */
     fun testAnalyticHeightIsCheapForHugeCode() {
-        val code = (1..5_000).joinToString("\n") { "val v$it = $it // filler" }
-        val start = System.currentTimeMillis()
-        val block = CodeBlock(project, "kotlin", code)
+        val code = (1..2_000).joinToString("\n") { "val v$it = $it // filler" }
+        val html = dev.pi.gui.ui.markdown.CodeHighlighter.toHtml(project, "kotlin", code)
+
+        // Warm the JIT and the shared highlighting caches so neither side pays first-call costs.
+        CodeBlock(project, "kotlin", "val warm = 1").heightForWidth(600)
+
+        val analytic = CodeBlock(project, "kotlin", code)
+        analytic.heightForWidth(600)
+
+        // A distinct width per call, or the per-width memo would make this time 49 cache hits.
         var h = 0
-        repeat(50) { h = block.heightForWidth(600) }
-        val elapsed = System.currentTimeMillis() - start
-        assertTrue("height $h", h > 0)
-        assertTrue("5000-line measurement x50 took ${elapsed}ms", elapsed < 500)
+        val analyticStart = System.nanoTime()
+        repeat(MEASUREMENTS) { h = analytic.heightForWidth(600 + it) }
+        val analyticNanos = System.nanoTime() - analyticStart
+
+        val viewBased = HtmlBlock(html)
+        val viewStart = System.nanoTime()
+        val viewHeight = viewBased.heightForWidth(600)
+        val viewNanos = System.nanoTime() - viewStart
+
+        assertTrue("analytic height $h", h > 0)
+        assertTrue("reference height $viewHeight", viewHeight > 0)
+        assertTrue(
+            "$MEASUREMENTS analytic measurements took ${analyticNanos / 1_000_000}ms, " +
+                "but a single view measurement took ${viewNanos / 1_000_000}ms — " +
+                "the analytic path is no longer avoiding the layout pass",
+            analyticNanos < viewNanos,
+        )
+    }
+
+    private companion object {
+        const val MEASUREMENTS = 50
     }
 }
