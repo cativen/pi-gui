@@ -152,6 +152,13 @@ class WebChatTest : BasePlatformTestCase() {
             "setThinking" -> surface.onSelectThinking = { mark() }
             "openDiff" -> surface.onOpenDiff = { mark() }
             "commands" -> surface.onRequestCommands = mark
+            "newSession" -> surface.onNewSession = mark
+            "refreshSessions" -> surface.onRefreshSessions = mark
+            "toggleSidebar" -> surface.onToggleSidebar = mark
+            "openSettings" -> surface.onOpenSettings = mark
+            "selectSession" -> surface.onSelectSession = { mark() }
+            "renameSession" -> surface.onRenameSession = { mark() }
+            "deleteSession" -> surface.onDeleteSession = { mark() }
             "ready" -> Unit
             else -> fail("chat.js sends '$type' and this test does not know what it is for")
         }
@@ -321,5 +328,11 @@ class WebChatTest : BasePlatformTestCase() {
         surface.setCommands(listOf(ChatSurface.Command("tree", "Show the session tree")))
         surface.setEdits(listOf(ChatSurface.Edit("src/Main.kt", 3, 1)))
         surface.setSendOnEnter(true)
+
+        surface.setSessions(
+            listOf(ChatSurface.Session("/tmp/a.jsonl", "a chat", "Sep 15, 19:44")),
+            selectedPath = "/tmp/a.jsonl",
+        )
+        surface.setSidebarVisible(true)
     }
 }

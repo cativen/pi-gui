@@ -42,6 +42,13 @@ class WebChatSurface(
     override var onSelectThinking: ((String) -> Unit)? = null
     override var onOpenDiff: ((String) -> Unit)? = null
     override var onRequestCommands: (() -> Unit)? = null
+    override var onNewSession: (() -> Unit)? = null
+    override var onRefreshSessions: (() -> Unit)? = null
+    override var onToggleSidebar: (() -> Unit)? = null
+    override var onOpenSettings: (() -> Unit)? = null
+    override var onSelectSession: ((String) -> Unit)? = null
+    override var onRenameSession: ((String) -> Unit)? = null
+    override var onDeleteSession: ((String) -> Unit)? = null
 
     private val view: WebPage = page { handle(it) }
 
@@ -90,6 +97,13 @@ class WebChatSurface(
             "setThinking" -> onSelectThinking?.invoke(text("level"))
             "openDiff" -> onOpenDiff?.invoke(text("path"))
             "commands" -> onRequestCommands?.invoke()
+            "newSession" -> onNewSession?.invoke()
+            "refreshSessions" -> onRefreshSessions?.invoke()
+            "toggleSidebar" -> onToggleSidebar?.invoke()
+            "openSettings" -> onOpenSettings?.invoke()
+            "selectSession" -> onSelectSession?.invoke(text("path"))
+            "renameSession" -> onRenameSession?.invoke(text("path"))
+            "deleteSession" -> onDeleteSession?.invoke(text("path"))
         }
     }
 
@@ -120,6 +134,13 @@ class WebChatSurface(
                     "emptySubtitle" to PiBundle.message("chat.empty.subtitle"),
                     "working" to PiBundle.message("status.thinking"),
                     "noCommand" to PiBundle.message("chat.commands.none"),
+                    "newSession" to PiBundle.message("toolbar.newSession"),
+                    "refresh" to PiBundle.message("toolbar.refresh"),
+                    "toggleSessions" to PiBundle.message("toolbar.toggleSessions"),
+                    "settings" to PiBundle.message("toolbar.settings"),
+                    "sessionsEmpty" to PiBundle.message("sessions.empty"),
+                    "renameSession" to PiBundle.message("sessions.rename"),
+                    "deleteSession" to PiBundle.message("sessions.delete"),
                 ),
             )
         )
@@ -264,6 +285,24 @@ class WebChatSurface(
 
     override fun setSendOnEnter(sendOnEnter: Boolean) {
         view.post(mapOf("type" to "settings", "sendOnEnter" to sendOnEnter))
+    }
+
+    // ---------------------------------------------------------------- shell
+
+    override fun setSessions(items: List<ChatSurface.Session>, selectedPath: String?) {
+        view.post(
+            mapOf(
+                "type" to "sessions",
+                "items" to items.map {
+                    mapOf("path" to it.path, "title" to it.title, "at" to it.at)
+                },
+                "selected" to selectedPath,
+            )
+        )
+    }
+
+    override fun setSidebarVisible(visible: Boolean) {
+        view.post(mapOf("type" to "sidebar", "visible" to visible))
     }
 
     private fun choice(c: ChatSurface.Choice) = mapOf("id" to c.id, "label" to c.label)

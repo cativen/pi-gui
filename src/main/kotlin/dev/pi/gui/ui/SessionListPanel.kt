@@ -39,6 +39,15 @@ class SessionListPanel(private val project: Project) : JPanel(BorderLayout()) {
     /** Fires after the user renamed a session, so a loaded chat can update its title. */
     var onSessionRenamed: ((SessionInfo) -> Unit)? = null
 
+    /**
+     * Fires whenever the list or the selection changes.
+     *
+     * When the sidebar is drawn by the web view this panel stays off-screen and keeps doing the
+     * work — reading the session files, renaming, deleting, raising the IDE's dialogs — and the
+     * page mirrors what it worked out. One source of truth, two ways of drawing it.
+     */
+    var onSessionsChanged: ((List<SessionInfo>, String?) -> Unit)? = null
+
     init {
         list.selectionMode = ListSelectionModel.SINGLE_SELECTION
         list.cellRenderer = SessionCellRenderer()
@@ -85,6 +94,33 @@ class SessionListPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     fun selectedSession(): SessionInfo? = list.selectedValue
 
+    fun sessions(): List<SessionInfo> = (0 until model.size()).map { model.getElementAt(it) }
+
+    /** Select by session file, which is the row identity the web sidebar reports back. */
+    fun selectByPath(path: String): SessionInfo? {
+        for (i in 0 until model.size()) {
+            if (model.getElementAt(i).filePath == path) {
+                list.selectedIndex = i
+                return model.getElementAt(i)
+            }
+        }
+        return null
+    }
+
+    fun renameByPath(path: String) {
+        selectByPath(path) ?: return
+        renameSelected()
+    }
+
+    fun deleteByPath(path: String) {
+        selectByPath(path) ?: return
+        deleteSelected()
+    }
+
+    private fun publish() {
+        onSessionsChanged?.invoke(sessions(), list.selectedValue?.filePath)
+    }
+
     /** Put the keyboard on the session list, so `/resume` lands where the user can pick one. */
     fun focusList() {
         if (list.model.size > 0 && list.selectedIndex < 0) list.selectedIndex = 0
@@ -93,6 +129,7 @@ class SessionListPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     /** Re-applies theme and language after the settings dialog is accepted. */
     fun applySettings() {
+        publish()
         background = PiTheme.surfaceBg
         list.background = PiTheme.surfaceBg
         list.emptyText.text = PiBundle.message("sessions.empty")
@@ -118,6 +155,7 @@ class SessionListPanel(private val project: Project) : JPanel(BorderLayout()) {
                         }
                     }
                 }
+                publish()
             }
         }
     }
@@ -194,6 +232,7 @@ class SessionListPanel(private val project: Project) : JPanel(BorderLayout()) {
                 break
             }
         }
+        publish()
         onSessionRenamed?.invoke(updated)
     }
 

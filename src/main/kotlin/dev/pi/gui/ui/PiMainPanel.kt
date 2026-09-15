@@ -31,6 +31,15 @@ class PiMainPanel(private val project: Project) : JPanel(BorderLayout()), Dispos
     private val contentCards = CardLayout()
     private val content = JPanel(contentCards)
     private var sidebarVisible = true
+
+    /**
+     * True when the conversation page draws the toolbar and the session list itself.
+     *
+     * A Swing list beside a Chromium transcript never matched, whichever theme was picked, so in
+     * web mode the chrome moves into the same document and this panel keeps only the plumbing:
+     * [sessions] still reads the files and raises the IDE's rename and delete dialogs, off-screen.
+     */
+    private val shellInPage = chat.hostsShell()
     private var toolbarComponent: JPanel? = null
     private var settingsSurface: WebSettingsSurface? = null
     private var showingSettings = false
@@ -38,8 +47,10 @@ class PiMainPanel(private val project: Project) : JPanel(BorderLayout()), Dispos
     /** Rebuilds the chrome after a settings change — the toolbar text is language-dependent. */
     private val settingsListener: () -> Unit = {
         com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
-            rebuildToolbar()
-            toolbarComponent?.isVisible = !showingSettings
+            if (!shellInPage) {
+                rebuildToolbar()
+                toolbarComponent?.isVisible = !showingSettings
+            }
             sessions.applySettings()
             chat.applySettings()
             revalidate()
@@ -62,11 +73,32 @@ class PiMainPanel(private val project: Project) : JPanel(BorderLayout()), Dispos
             sessions.focusList()
         }
         chat.onShowSettingsRequested = { showSettings() }
+        chat.onRefreshSessionsRequested = { sessions.refresh() }
+        chat.onToggleSidebarRequested = { toggleSidebar() }
+        chat.onSelectSessionRequested = { path ->
+            sessions.selectByPath(path)?.let { chat.loadSession(it) }
+        }
+        chat.onRenameSessionRequested = { path -> sessions.renameByPath(path) }
+        chat.onDeleteSessionRequested = { path -> sessions.deleteByPath(path) }
+        sessions.onSessionsChanged = { items, selected ->
+            chat.setSessions(
+                items.map {
+                    dev.pi.gui.ui.transcript.ChatSurface.Session(
+                        path = it.filePath,
+                        title = it.displayTitle(),
+                        at = sessionDateFormat.format(java.util.Date(it.lastModified)),
+                    )
+                },
+                selected,
+            )
+        }
 
-        splitter.firstComponent = sessions
+        splitter.firstComponent = if (shellInPage) null else sessions
         splitter.secondComponent = chat
+        if (shellInPage) splitter.proportion = 0f
 
-        rebuildToolbar()
+        if (!shellInPage) rebuildToolbar()
+        chat.setSidebarVisible(sidebarVisible)
         content.add(splitter, CHAT_CARD)
         add(content, BorderLayout.CENTER)
 
@@ -163,6 +195,10 @@ class PiMainPanel(private val project: Project) : JPanel(BorderLayout()), Dispos
 
     private fun toggleSidebar() {
         sidebarVisible = !sidebarVisible
+        if (shellInPage) {
+            chat.setSidebarVisible(sidebarVisible)
+            return
+        }
         splitter.firstComponent = if (sidebarVisible) sessions else null
         splitter.proportion = if (sidebarVisible) 0.3f else 0f
         revalidate()
@@ -214,6 +250,9 @@ class PiMainPanel(private val project: Project) : JPanel(BorderLayout()), Dispos
     }
 
     private companion object {
+        /** Matches the format the Swing session rows have always used. */
+        val sessionDateFormat = java.text.SimpleDateFormat("MMM d, HH:mm")
+
         const val CHAT_CARD = "chat"
         const val SETTINGS_CARD = "settings"
     }

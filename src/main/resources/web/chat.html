@@ -9,6 +9,18 @@
 </head>
 <body class="chat">
 <div id="chat-root">
+  <div id="sidebar">
+    <div id="toolbar">
+      <button id="new-session" class="tool-btn" type="button"></button>
+      <button id="refresh-sessions" class="tool-btn" type="button"></button>
+      <span class="tool-divider"></span>
+      <button id="toggle-sidebar" class="tool-btn" type="button"></button>
+      <button id="open-settings" class="tool-btn" type="button"></button>
+    </div>
+    <div id="sessions" class="sessions"></div>
+  </div>
+
+  <div id="main">
   <div id="scroller" class="transcript">
     <div id="empty" class="empty">
       <div class="glyph">&pi;</div>
@@ -48,6 +60,9 @@
 
     <div id="menu" class="menu-popup" role="menu" hidden></div>
   </div>
+  </div>
+
+  <div id="session-menu" class="menu-popup" role="menu" hidden></div>
 </div>
 <script src="chat.js"></script>
 </body>

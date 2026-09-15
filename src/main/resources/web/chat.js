@@ -24,7 +24,10 @@
     popupOpen: false,
     composing: false,
     models: { providers: [], provider: null, models: [], model: null, thinking: [], thinkingLevel: null },
-    context: { label: '', tooltip: '' }
+    context: { label: '', tooltip: '' },
+    sessions: [],
+    selectedSession: null,
+    sidebarVisible: true
   };
 
   /*
@@ -40,7 +43,11 @@
     send: '<path d="M15 3 8 10M15 3l-4.5 12L8 10 3 7.5Z"/>',
     stop: '<rect x="5" y="5" width="8" height="8" rx="1.5"/>',
     close: '<path d="m5 5 8 8M13 5l-8 8"/>',
-    tick: '<path d="M3.5 9l3 3 6-7"/>'
+    tick: '<path d="M3.5 9l3 3 6-7"/>',
+    plus: '<path d="M9 4v10M4 9h10"/>',
+    refresh: '<path d="M14.5 9a5.5 5.5 0 1 1-1.6-3.9M14.5 2.5V6H11"/>',
+    list: '<path d="M4 5.5h10M4 9h10M4 12.5h10"/>',
+    gear: '<circle cx="9" cy="9" r="2.4"/><path d="M9 2.6v1.7M9 13.7v1.7M15.4 9h-1.7M4.3 9H2.6M13.5 4.5l-1.2 1.2M5.7 12.3l-1.2 1.2M13.5 13.5l-1.2-1.2M5.7 5.7 4.5 4.5"/>'
   };
 
   function icon(name, cls) {
@@ -68,10 +75,15 @@
   function init() {
     ['scroller', 'empty', 'earlier', 'messages', 'streaming', 'activity', 'edits', 'composer',
      'attachments', 'command-popup', 'composer-card', 'input', 'controls', 'attach',
-     'provider', 'model', 'thinking', 'compact', 'stop', 'send', 'menu'
+     'provider', 'model', 'thinking', 'compact', 'stop', 'send', 'menu',
+     'sidebar', 'toolbar', 'sessions', 'new-session', 'refresh-sessions',
+     'toggle-sidebar', 'open-settings', 'session-menu'
     ].forEach(function (id) { els[id] = document.getElementById(id); });
 
     paintPills();
+    paintToolbar();
+    paintSidebar();
+    paintSessions();
 
     els.scroller.addEventListener('scroll', function () {
       var el = els.scroller;
@@ -136,13 +148,31 @@
 
     // A click anywhere else closes the dropdown; the pill's own handler reopens it.
     document.addEventListener('mousedown', function (e) {
-      if (els.menu.hidden) return;
-      if (els.menu.contains(e.target)) return;
-      if (e.target.closest && e.target.closest('.pill.menu')) return;
-      hideMenu();
+      if (!els.menu.hidden && !els.menu.contains(e.target) &&
+          !(e.target.closest && e.target.closest('.pill.menu'))) {
+        hideMenu();
+      }
+      if (!els['session-menu'].hidden && !els['session-menu'].contains(e.target)) {
+        hideSessionMenu();
+      }
     });
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && !els.menu.hidden) { hideMenu(); e.preventDefault(); }
+      if (e.key !== 'Escape') return;
+      if (!els.menu.hidden) { hideMenu(); e.preventDefault(); }
+      if (!els['session-menu'].hidden) { hideSessionMenu(); e.preventDefault(); }
+    });
+
+    els['new-session'].addEventListener('click', function () { send({ type: 'newSession' }); });
+    els['refresh-sessions'].addEventListener('click', function () { send({ type: 'refreshSessions' }); });
+    els['toggle-sidebar'].addEventListener('click', function () { send({ type: 'toggleSidebar' }); });
+    els['open-settings'].addEventListener('click', function () { send({ type: 'openSettings' }); });
+
+    // Rename and delete raise the IDE's own dialogs, so the row only has to say which session.
+    els.sessions.addEventListener('contextmenu', function (e) {
+      var row = e.target.closest && e.target.closest('.session');
+      if (!row) return;
+      e.preventDefault();
+      openSessionMenu(row, row.dataset.path);
     });
 
     document.addEventListener('dragover', function (e) { e.preventDefault(); });
@@ -192,6 +222,8 @@
       if (activityLabel) activityLabel.textContent = t('working');
       paintPills();
       paintEmpty();
+      paintToolbar();
+      paintSessions();
     },
 
     settings: function (e) {
@@ -263,6 +295,17 @@
       };
       hideMenu();
       paintPills();
+    },
+
+    sessions: function (e) {
+      state.sessions = e.items || [];
+      state.selectedSession = e.selected === undefined ? null : e.selected;
+      paintSessions();
+    },
+
+    sidebar: function (e) {
+      state.sidebarVisible = e.visible !== false;
+      paintSidebar();
     },
 
     context: function (e) {
@@ -352,6 +395,86 @@
 
     focusInput: function () { els.input.focus(); }
   };
+
+  // ------------------------------------------------------------------- shell
+
+  function paintToolbar() {
+    toolButton(els['new-session'], 'plus', t('newSession'));
+    toolButton(els['refresh-sessions'], 'refresh', t('refresh'));
+    toolButton(els['toggle-sidebar'], 'list', t('toggleSessions'));
+    toolButton(els['open-settings'], 'gear', t('settings'));
+    els['toggle-sidebar'].classList.toggle('on', state.sidebarVisible);
+  }
+
+  function toolButton(el, glyph, title) {
+    el.innerHTML = icon(glyph);
+    el.title = title;
+    el.setAttribute('aria-label', title);
+  }
+
+  function paintSidebar() {
+    els.sidebar.classList.toggle('collapsed', !state.sidebarVisible);
+    els['toggle-sidebar'].classList.toggle('on', state.sidebarVisible);
+  }
+
+  function paintSessions() {
+    els.sessions.innerHTML = '';
+    if (!state.sessions.length) {
+      var none = document.createElement('div');
+      none.className = 'sessions-empty';
+      none.textContent = t('sessionsEmpty');
+      els.sessions.appendChild(none);
+      return;
+    }
+    state.sessions.forEach(function (it) {
+      var row = document.createElement('div');
+      row.className = 'session' + (it.path === state.selectedSession ? ' active' : '');
+      row.dataset.path = it.path;
+      row.title = it.title;
+      row.innerHTML = '<span class="session-title">' + escapeHtml(it.title) + '</span>' +
+        '<span class="when">' + escapeHtml(it.at) + '</span>';
+      row.addEventListener('click', function () {
+        state.selectedSession = it.path;
+        paintSessions();
+        send({ type: 'selectSession', path: it.path });
+      });
+      els.sessions.appendChild(row);
+    });
+  }
+
+  function openSessionMenu(anchor, path) {
+    hideMenu();
+    var box = els['session-menu'];
+    box.innerHTML = '';
+    [
+      { label: t('renameSession'), type: 'renameSession' },
+      { label: t('deleteSession'), type: 'deleteSession' }
+    ].forEach(function (it) {
+      var row = document.createElement('div');
+      row.className = 'menu-item';
+      row.innerHTML = '<span class="tick"></span><span class="menu-label">' +
+        escapeHtml(it.label) + '</span>';
+      row.addEventListener('mousedown', function (ev) {
+        ev.preventDefault();
+        hideSessionMenu();
+        send({ type: it.type, path: path });
+      });
+      box.appendChild(row);
+    });
+
+    // Anchored to the row and clamped to the window, so a row near the bottom still shows it.
+    box.hidden = false;
+    box.style.left = '0px';
+    box.style.top = '0px';
+    box.style.bottom = 'auto';
+    var rect = anchor.getBoundingClientRect();
+    var left = Math.min(rect.left + 12, window.innerWidth - box.offsetWidth - 8);
+    var top = Math.min(rect.bottom + 2, window.innerHeight - box.offsetHeight - 8);
+    box.style.left = Math.max(left, 8) + 'px';
+    box.style.top = Math.max(top, 8) + 'px';
+  }
+
+  function hideSessionMenu() { els['session-menu'].hidden = true; }
 
   // ------------------------------------------------------------------- pills
 

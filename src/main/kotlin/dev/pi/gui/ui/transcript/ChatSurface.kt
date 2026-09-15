@@ -56,6 +56,20 @@ interface ChatSurface : TranscriptSurface {
     /** Enter sends, or Shift+Enter does — mirrors the setting. */
     fun setSendOnEnter(sendOnEnter: Boolean)
 
+    // ------------------------------------------------------------------ shell
+
+    /**
+     * The sessions recorded for this project, newest first, and which one is loaded.
+     *
+     * The sidebar and its toolbar sit in the same page as the conversation so they follow the
+     * same stylesheet — a Swing list beside a Chromium transcript never matched, whichever theme
+     * was picked. The plugin still reads, renames and deletes the session files; the page draws
+     * the rows and reports which one was clicked.
+     */
+    fun setSessions(items: List<Session>, selectedPath: String?)
+
+    fun setSidebarVisible(visible: Boolean)
+
     // ------------------------------------------------------------ callbacks
 
     var onSend: ((String) -> Unit)?
@@ -72,6 +86,16 @@ interface ChatSurface : TranscriptSurface {
     /** The popup opened and wants an up-to-date command list. */
     var onRequestCommands: (() -> Unit)?
 
+    // The toolbar above the sidebar. Renaming and deleting still raise the IDE's own dialogs —
+    // a modal built in HTML would not be the dialog the rest of the IDE shows.
+    var onNewSession: (() -> Unit)?
+    var onRefreshSessions: (() -> Unit)?
+    var onToggleSidebar: (() -> Unit)?
+    var onOpenSettings: (() -> Unit)?
+    var onSelectSession: ((String) -> Unit)?
+    var onRenameSession: ((String) -> Unit)?
+    var onDeleteSession: ((String) -> Unit)?
+
     // --------------------------------------------------------------- types
 
     data class Attachment(val id: String, val name: String)
@@ -79,6 +103,9 @@ interface ChatSurface : TranscriptSurface {
     data class Command(val name: String, val description: String)
 
     data class Edit(val path: String, val added: Int, val removed: Int)
+
+    /** [path] is the session file, which is the row's identity on both sides of the bridge. */
+    data class Session(val path: String, val title: String, val at: String)
 
     data class Choice(val id: String, val label: String)
 

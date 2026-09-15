@@ -343,8 +343,41 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
             commandRegistry.ensureLoaded(rpc) { pushCommands() }
             pushCommands()
         }
+        surface.onNewSession = { onNewSessionRequested?.invoke() ?: startNewSession() }
+        surface.onRefreshSessions = { onRefreshSessionsRequested?.invoke() }
+        surface.onToggleSidebar = { onToggleSidebarRequested?.invoke() }
+        surface.onOpenSettings = { onShowSettingsRequested?.invoke() }
+        surface.onSelectSession = { path -> onSelectSessionRequested?.invoke(path) }
+        surface.onRenameSession = { path -> onRenameSessionRequested?.invoke(path) }
+        surface.onDeleteSession = { path -> onDeleteSessionRequested?.invoke(path) }
+
         surface.setSendOnEnter(PiSettings.getInstance().sendOnEnter)
     }
+
+    /**
+     * The sessions the sidebar shows, when the sidebar is part of the page.
+     *
+     * [PiMainPanel] owns the session list either way; in web mode it hands the rows over rather
+     * than drawing them, so the sidebar and the conversation share one stylesheet.
+     */
+    fun setSessions(items: List<ChatSurface.Session>, selectedPath: String?) {
+        if (!webMode) return
+        surface.setSessions(items, selectedPath)
+    }
+
+    fun setSidebarVisible(visible: Boolean) {
+        if (!webMode) return
+        surface.setSidebarVisible(visible)
+    }
+
+    /** True when the shell is drawn by the page, so the native toolbar and sidebar stand down. */
+    fun hostsShell(): Boolean = webMode
+
+    var onRefreshSessionsRequested: (() -> Unit)? = null
+    var onToggleSidebarRequested: (() -> Unit)? = null
+    var onSelectSessionRequested: ((String) -> Unit)? = null
+    var onRenameSessionRequested: ((String) -> Unit)? = null
+    var onDeleteSessionRequested: ((String) -> Unit)? = null
 
     /** The completion list the browser's `/` popup filters. */
     private fun pushCommands() {
@@ -2394,6 +2427,13 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         override var onSelectThinking: ((String) -> Unit)? = null
         override var onOpenDiff: ((String) -> Unit)? = null
         override var onRequestCommands: (() -> Unit)? = null
+        override var onNewSession: (() -> Unit)? = null
+        override var onRefreshSessions: (() -> Unit)? = null
+        override var onToggleSidebar: (() -> Unit)? = null
+        override var onOpenSettings: (() -> Unit)? = null
+        override var onSelectSession: ((String) -> Unit)? = null
+        override var onRenameSession: ((String) -> Unit)? = null
+        override var onDeleteSession: ((String) -> Unit)? = null
 
         override fun setMessages(messages: List<PiMessage>, hiddenCount: Int) =
             transcript.setMessages(messages, hiddenCount)
@@ -2468,6 +2508,14 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
         override fun setSendOnEnter(sendOnEnter: Boolean) {
             // Read from settings at keypress time by the Swing key bindings.
+        }
+
+        override fun setSessions(items: List<ChatSurface.Session>, selectedPath: String?) {
+            // The sidebar and toolbar stay native in this mode; PiMainPanel drives them directly.
+        }
+
+        override fun setSidebarVisible(visible: Boolean) {
+            // As above — the splitter is the sidebar here.
         }
 
         override fun dispose() = transcript.dispose()
