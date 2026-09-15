@@ -21,8 +21,16 @@ object WebTheme {
             "text-fg" to hex(PiTheme.textFg()),
             "muted-fg" to hex(PiTheme.mutedFg()),
             "accent" to hex(PiTheme.accent),
+            "accent-hover" to hex(PiTheme.accentHover),
+            // The second stop of the empty-state mark. Derived rather than picked so it stays in
+            // step with whatever accent the theme resolves to.
+            "accent-soft" to hex(shift(PiTheme.accent, red = 60, blue = 40)),
+            // A pill's hover outline: the accent is too loud at full strength on every control.
+            "accent-border" to hex(blend(PiTheme.accent, PiTheme.inputBg, 0.55)),
             "on-accent" to hex(PiTheme.onAccent),
             "border" to hex(PiTheme.toolBorder),
+            "pill-bg" to hex(blend(PiTheme.surfaceBg, PiTheme.inputBg, 0.5)),
+            "pill-hover-bg" to hex(blend(PiTheme.textFg(), PiTheme.inputBg, 0.08)),
             "code-bg" to hex(PiTheme.codeBg()),
             "user-bubble-bg" to hex(PiTheme.userBubbleBg),
             "user-bubble-fg" to hex(PiTheme.userBubbleFg),
@@ -37,4 +45,22 @@ object WebTheme {
     }
 
     private fun hex(color: java.awt.Color): String = PiTheme.toHex(color)
+
+    /** [weight] of [front] over [back]; both opaque, so no alpha reaches the page. */
+    private fun blend(front: java.awt.Color, back: java.awt.Color, weight: Double): java.awt.Color {
+        val w = weight.coerceIn(0.0, 1.0)
+        fun mix(f: Int, b: Int) = (f * w + b * (1 - w)).toInt().coerceIn(0, 255)
+        return java.awt.Color(
+            mix(front.red, back.red),
+            mix(front.green, back.green),
+            mix(front.blue, back.blue),
+        )
+    }
+
+    private fun shift(color: java.awt.Color, red: Int = 0, green: Int = 0, blue: Int = 0) =
+        java.awt.Color(
+            (color.red + red).coerceIn(0, 255),
+            (color.green + green).coerceIn(0, 255),
+            (color.blue + blue).coerceIn(0, 255),
+        )
 }

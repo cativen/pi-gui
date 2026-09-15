@@ -13,7 +13,7 @@
     <div id="empty" class="empty">
       <div class="glyph">&pi;</div>
       <div class="empty-title"></div>
-      <div class="empty-path"></div>
+      <div class="empty-subtitle"></div>
     </div>
     <div id="earlier"></div>
     <div id="messages"></div>
@@ -23,22 +23,25 @@
   <div id="edits" class="edits" hidden></div>
 
   <div id="composer">
-    <div id="attachments" class="attachments" hidden></div>
     <div id="command-popup" class="command-popup" hidden></div>
-    <div id="input-shell">
-      <textarea id="input" rows="3" spellcheck="false"></textarea>
+
+    <div id="composer-card">
+      <div id="attachments" class="attachments" hidden></div>
+      <textarea id="input" rows="1" spellcheck="false"></textarea>
+      <div id="controls">
+        <button id="attach" class="pill" type="button"></button>
+        <span class="control-divider"></span>
+        <button id="provider" class="pill menu" type="button"></button>
+        <button id="model" class="pill menu" type="button"></button>
+        <button id="thinking" class="pill menu" type="button"></button>
+        <button id="compact" class="pill menu" type="button"></button>
+        <span class="spacer"></span>
+        <button id="stop" class="pill danger" type="button" hidden></button>
+        <button id="send" class="pill primary" type="button"></button>
+      </div>
     </div>
-    <div id="controls">
-      <button id="attach" class="icon-btn" title="">+</button>
-      <select id="provider" class="combo"></select>
-      <select id="model" class="combo"></select>
-      <select id="thinking" class="combo"></select>
-      <span class="spacer"></span>
-      <span id="context" class="context" hidden></span>
-      <button id="compact" class="icon-btn" title="">⌄</button>
-      <button id="stop" class="icon-btn danger" title="" hidden>■</button>
-      <button id="send" class="icon-btn primary" title="">▶</button>
-    </div>
+
+    <div id="menu" class="menu-popup" hidden></div>
   </div>
 </div>
 <script src="chat.js"></script>

@@ -22,8 +22,41 @@
     filtered: [],
     selected: 0,
     popupOpen: false,
-    composing: false
+    composing: false,
+    models: { providers: [], provider: null, models: [], model: null, thinking: [], thinkingLevel: null },
+    context: { label: '', tooltip: '' }
   };
+
+  /*
+   * Inline, stroked, sized in em and drawn in currentColor, so they follow the IDE's font size
+   * and the pill they sit in — including the white-on-blue send button — with no second asset.
+   */
+  var ICON = {
+    attach: '<path d="M14.5 6.5 8 13a3 3 0 0 1-4.2-4.2l6.6-6.6a2 2 0 0 1 2.9 2.9l-6.6 6.6a1 1 0 0 1-1.4-1.4L11.6 4"/>',
+    provider: '<rect x="3" y="6" width="12" height="8" rx="2"/><path d="M9 6V3.5M6.5 10h.01M11.5 10h.01"/>',
+    model: '<rect x="3" y="4" width="12" height="11" rx="2"/><path d="M6 8h6M6 11h4"/>',
+    thinking: '<path d="M8 3.5A2.5 2.5 0 0 0 5.5 6v6A2.5 2.5 0 0 0 8 14.5ZM10 3.5A2.5 2.5 0 0 1 12.5 6v6a2.5 2.5 0 0 1-2.5 2.5ZM8 3.5h2M8 14.5h2"/>',
+    compact: '<rect x="2.5" y="2.5" width="13" height="13" rx="3"/><circle cx="9" cy="9" r="3"/>',
+    send: '<path d="M15 3 8 10M15 3l-4.5 12L8 10 3 7.5Z"/>',
+    stop: '<rect x="5" y="5" width="8" height="8" rx="1.5"/>',
+    tick: '<path d="M3.5 9l3 3 6-7"/>'
+  };
+
+  function icon(name, cls) {
+    return '<svg class="' + (cls || 'glyph-icon') + '" viewBox="0 0 18 18" width="1em" height="1em" ' +
+      'fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" ' +
+      'stroke-linejoin="round" aria-hidden="true">' + ICON[name] + '</svg>';
+  }
+
+  var CHEVRON = '<svg class="chevron" viewBox="0 0 18 18" width="1em" height="1em" fill="none" ' +
+    'stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" ' +
+    'aria-hidden="true"><path d="M5 7.5 9 11.5l4-4"/></svg>';
+
+  function escapeHtml(text) {
+    return String(text == null ? '' : text)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
 
   function send(msg) {
     if (window.__piSend) window.__piSend(JSON.stringify(msg));
@@ -33,9 +66,11 @@
 
   function init() {
     ['scroller', 'empty', 'earlier', 'messages', 'streaming', 'edits', 'composer',
-     'attachments', 'command-popup', 'input-shell', 'input', 'controls', 'attach',
-     'provider', 'model', 'thinking', 'context', 'compact', 'stop', 'send'
+     'attachments', 'command-popup', 'composer-card', 'input', 'controls', 'attach',
+     'provider', 'model', 'thinking', 'compact', 'stop', 'send', 'menu'
     ].forEach(function (id) { els[id] = document.getElementById(id); });
+
+    paintPills();
 
     els.scroller.addEventListener('scroll', function () {
       var el = els.scroller;
@@ -58,9 +93,9 @@
     els.input.addEventListener('input', onInput);
     els.input.addEventListener('keydown', onKeyDown);
     els.input.addEventListener('paste', onPaste);
-    els.input.addEventListener('focus', function () { els['input-shell'].classList.add('focused'); });
+    els.input.addEventListener('focus', function () { els['composer-card'].classList.add('focused'); });
     els.input.addEventListener('blur', function () {
-      els['input-shell'].classList.remove('focused');
+      els['composer-card'].classList.remove('focused');
       hidePopup();
     });
     // An IME is mid-word between these two events; Enter must not send there.
@@ -70,16 +105,43 @@
     els.send.addEventListener('click', doSend);
     els.stop.addEventListener('click', function () { send({ type: 'abort' }); });
     els.attach.addEventListener('click', function () { send({ type: 'attach' }); });
-    els.compact.addEventListener('click', function () { send({ type: 'compact' }); });
 
-    els.provider.addEventListener('change', function () {
-      send({ type: 'setProvider', id: els.provider.value });
+    els.provider.addEventListener('click', function () {
+      openMenu(els.provider, state.models.providers, state.models.provider, function (id) {
+        send({ type: 'setProvider', id: id });
+      });
     });
-    els.model.addEventListener('change', function () {
-      send({ type: 'setModel', id: els.model.value });
+    els.model.addEventListener('click', function () {
+      openMenu(els.model, state.models.models, state.models.model, function (id) {
+        send({ type: 'setModel', id: id });
+      });
     });
-    els.thinking.addEventListener('change', function () {
-      send({ type: 'setThinking', level: els.thinking.value });
+    els.thinking.addEventListener('click', function () {
+      openMenu(els.thinking, state.models.thinking, state.models.thinkingLevel, function (id) {
+        send({ type: 'setThinking', level: id });
+      });
+    });
+    // pi compacts on its own when the context fills up, so the only choice to offer is doing it
+    // now; the readout above it says how full the window currently is.
+    els.compact.addEventListener('click', function () {
+      openMenu(
+        els.compact,
+        [{ id: 'now', label: t('compactNow') }],
+        null,
+        function () { send({ type: 'compact' }); },
+        state.context.label ? t('contextPrefix') + ' ' + state.context.label : ''
+      );
+    });
+
+    // A click anywhere else closes the dropdown; the pill's own handler reopens it.
+    document.addEventListener('mousedown', function (e) {
+      if (els.menu.hidden) return;
+      if (els.menu.contains(e.target)) return;
+      if (e.target.closest && e.target.closest('.pill.menu')) return;
+      hideMenu();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !els.menu.hidden) { hideMenu(); e.preventDefault(); }
     });
 
     document.addEventListener('dragover', function (e) { e.preventDefault(); });
@@ -125,12 +187,8 @@
     i18n: function (e) {
       strings = e.strings || {};
       els.input.placeholder = t('placeholder');
-      els.send.title = state.running ? t('queue') : t('send');
-      els.stop.title = t('stop');
-      els.attach.title = t('attach');
-      els.compact.title = t('compact');
-      var title = els.empty.querySelector('.empty-title');
-      if (title) title.textContent = t('emptyTitle');
+      paintPills();
+      paintEmpty();
     },
 
     settings: function (e) {
@@ -142,10 +200,8 @@
       els.earlier.innerHTML = '';
       els.messages.innerHTML = '';
       els.streaming.innerHTML = '';
-      var title = els.empty.querySelector('.empty-title');
-      var path = els.empty.querySelector('.empty-path');
-      if (title) title.textContent = e.title || t('emptyTitle');
-      if (path) path.textContent = e.path || '';
+      state.emptyPath = e.path || '';
+      paintEmpty(e.title);
     },
 
     messages: function (e) {
@@ -185,21 +241,27 @@
     running: function (e) {
       state.running = !!e.running;
       els.stop.hidden = !state.running;
-      els.compact.disabled = state.running;
-      // Sending mid-run steers the turn in progress rather than starting a new one.
-      els.send.title = state.running ? t('queue') : t('send');
+      // Sending mid-run steers the turn in progress rather than starting a new one, so the send
+      // button stays live and only its wording changes.
+      paintPills();
     },
 
     models: function (e) {
-      fillCombo(els.provider, e.providers, e.provider);
-      fillCombo(els.model, e.models, e.model);
-      fillCombo(els.thinking, e.thinking, e.thinkingLevel);
+      state.models = {
+        providers: e.providers || [],
+        provider: e.provider === undefined ? null : e.provider,
+        models: e.models || [],
+        model: e.model === undefined ? null : e.model,
+        thinking: e.thinking || [],
+        thinkingLevel: e.thinkingLevel === undefined ? null : e.thinkingLevel
+      };
+      hideMenu();
+      paintPills();
     },
 
     context: function (e) {
-      els.context.hidden = !e.label;
-      els.context.textContent = e.label || '';
-      els.context.title = e.tooltip || '';
+      state.context = { label: e.label || '', tooltip: e.tooltip || '' };
+      paintPills();
     },
 
     edits: function (e) {
@@ -278,16 +340,108 @@
     focusInput: function () { els.input.focus(); }
   };
 
-  function fillCombo(el, items, selected) {
-    el.innerHTML = '';
-    (items || []).forEach(function (it) {
-      var opt = document.createElement('option');
-      opt.value = it.id !== undefined ? it.id : it;
-      opt.textContent = it.label !== undefined ? it.label : it;
-      el.appendChild(opt);
+  // ------------------------------------------------------------------- pills
+
+  /**
+   * Redraw every control from [state]. Cheap enough to do wholesale: five buttons, and it only
+   * runs when the plugin pushes a change, never while typing.
+   */
+  function paintPills() {
+    pill(els.attach, 'attach', null, t('attach'), false, false);
+    pill(els.send, 'send', null, t(state.running ? 'queue' : 'send'), false, false);
+    pill(els.stop, 'stop', null, t('stop'), false, false);
+
+    var m = state.models;
+    pill(els.provider, 'provider', null, labelOf(m.providers, m.provider) || t('provider'),
+         true, !m.providers.length);
+    pill(els.model, 'model', null, labelOf(m.models, m.model) || t('modelNone'),
+         true, !m.models.length);
+    pill(els.thinking, 'thinking', t('thinkingPrefix'),
+         labelOf(m.thinking, m.thinkingLevel) || t('thinkingNone'), true, !m.thinking.length);
+    // pi decides when to compact on its own; the readout of how full the window is lives in the
+    // dropdown, where it does not make the control jump about as the number changes.
+    pill(els.compact, 'compact', t('compactPrefix'), t('compactAuto'), true, state.running);
+    els.compact.title = state.context.tooltip || '';
+  }
+
+  function pill(el, glyph, prefix, label, dropdown, disabled) {
+    el.innerHTML = icon(glyph) +
+      (prefix ? '<span class="prefix">' + escapeHtml(prefix) + '</span>' : '') +
+      '<span class="label">' + escapeHtml(label) + '</span>' +
+      (dropdown ? CHEVRON : '');
+    el.disabled = !!disabled;
+  }
+
+  function labelOf(items, id) {
+    if (id === null || id === undefined) return '';
+    for (var i = 0; i < items.length; i++) if (items[i].id === id) return items[i].label;
+    return id;
+  }
+
+  // ---------------------------------------------------------- pill dropdown
+
+  /**
+   * Open the shared dropdown above [anchor].
+   *
+   * Above, not below: the composer sits on the bottom edge, so a menu hanging downwards would
+   * fall off the panel. One element is reused for all four pills — only one can be open.
+   */
+  function openMenu(anchor, items, selected, pick, note) {
+    if (!items || !items.length) { hideMenu(); return; }
+    if (els.menu.dataset.owner === anchor.id && !els.menu.hidden) { hideMenu(); return; }
+
+    els.menu.innerHTML = '';
+    els.menu.dataset.owner = anchor.id;
+
+    if (note) {
+      var head = document.createElement('div');
+      head.className = 'menu-note';
+      head.textContent = note;
+      els.menu.appendChild(head);
+      els.menu.appendChild(Object.assign(document.createElement('div'), { className: 'menu-separator' }));
+    }
+
+    items.forEach(function (it) {
+      var row = document.createElement('div');
+      var chosen = selected !== null && selected !== undefined && it.id === selected;
+      row.className = 'menu-item' + (chosen ? ' selected' : '');
+      row.innerHTML = (chosen ? icon('tick', 'tick') : '<span class="tick"></span>') +
+        '<span class="menu-label">' + escapeHtml(it.label) + '</span>';
+      row.addEventListener('mousedown', function (ev) {
+        ev.preventDefault();
+        hideMenu();
+        pick(it.id);
+      });
+      els.menu.appendChild(row);
     });
-    el.disabled = !(items && items.length);
-    if (selected !== undefined && selected !== null && selected !== '') el.value = selected;
+
+    // Measure before placing: the menu has to know its own height to sit on top of the pill.
+    els.menu.hidden = false;
+    els.menu.style.left = '0px';
+    els.menu.style.bottom = '0px';
+    var host = els.composer.getBoundingClientRect();
+    var box = anchor.getBoundingClientRect();
+    var width = els.menu.offsetWidth;
+    var left = Math.min(Math.max(box.left - host.left, 8), Math.max(host.width - width - 8, 8));
+    els.menu.style.left = left + 'px';
+    els.menu.style.bottom = (host.bottom - box.top + 6) + 'px';
+  }
+
+  function hideMenu() {
+    els.menu.hidden = true;
+    els.menu.dataset.owner = '';
+  }
+
+  function paintEmpty(title) {
+    var h1 = els.empty.querySelector('.empty-title');
+    var sub = els.empty.querySelector('.empty-subtitle');
+    if (h1) {
+      h1.textContent = title || state.emptyTitle || t('emptyTitle');
+      // The project is what the greeting is about, but naming it competes with the greeting.
+      h1.title = state.emptyPath || '';
+      state.emptyTitle = h1.textContent;
+    }
+    if (sub) sub.textContent = t('emptySubtitle');
   }
 
   function appendHtml(parent, html) {
@@ -305,7 +459,7 @@
 
   function autoGrow() {
     els.input.style.height = 'auto';
-    els.input.style.height = Math.min(els.input.scrollHeight, 180) + 'px';
+    els.input.style.height = Math.min(Math.max(els.input.scrollHeight, 42), 180) + 'px';
   }
 
   function onInput() {
