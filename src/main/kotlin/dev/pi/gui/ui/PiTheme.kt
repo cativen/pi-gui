@@ -40,45 +40,45 @@ object PiTheme {
     // -- surfaces ----------------------------------------------------------
 
     /** Conversation canvas (`--bg-primary`). */
-    val chatBg: Color get() = pick(0xFFFFFF, 0x1E1E1E)
+    val chatBg: Color get() = pick(0xF7F8FA, 0x181A1F)
 
     /** Sidebars, header strips and cards (`--bg-secondary`). */
-    val surfaceBg: Color get() = pick(0xF3F3F3, 0x252526)
+    val surfaceBg: Color get() = pick(0xFFFFFF, 0x20232A)
 
     /** Composer and form fields (`--bg-tertiary`). */
-    val inputBg: Color get() = pick(0xE8E8E8, 0x2B2D31)
+    val inputBg: Color get() = pick(0xF0F2F6, 0x262A32)
 
     /** Raised chips and popovers (`--bg-elevated`). */
-    val elevatedBg: Color get() = pick(0xF5F5F5, 0x2D2D2D)
+    val elevatedBg: Color get() = pick(0xFFFFFF, 0x2B303A)
 
     /** Resting background of tool blocks and attachment chips. */
-    val toolBg: Color get() = pick(0xF5F5F5, 0x2D2D2D)
-    val toolBorder: Color get() = pick(0xD0D0D0, 0x3E3E42)
+    val toolBg: Color get() = pick(0xF4F6F9, 0x242831)
+    val toolBorder: Color get() = pick(0xDDE1E7, 0x353B46)
 
     /** Hairline between transcript messages (`--color-message-divider`). */
     val messageDivider: Color
         get() = if (isDark()) Color(255, 255, 255, 12) else Color(0, 0, 0, 16)
 
     /** User message bubble: the accent blue with white text (`--color-message-user-bg`). */
-    val userBubbleBg: Color get() = pick(0x0078D4, 0x005FB8)
-    val userBubbleBorder: Color get() = pick(0x106EBE, 0x1A6FC4)
+    val userBubbleBg: Color get() = pick(0x3B70D6, 0x315FAD)
+    val userBubbleBorder: Color get() = pick(0x2E61C1, 0x426FBE)
     val userBubbleFg: Color get() = Color(0xFFFFFF)
 
     /** Inline-code background inside the filled user bubble (a shade darker than the bubble). */
-    val userBubbleCodeBg: Color get() = pick(0x0063B1, 0x004C96)
+    val userBubbleCodeBg: Color get() = pick(0x2E61C1, 0x264F94)
 
     // -- accents -----------------------------------------------------------
 
-    val accent: Color get() = pick(0x0078D4, 0x007FD4)
-    val accentHover: Color get() = pick(0x106EBE, 0x026EC1)
-    val accentPressed: Color get() = pick(0x005A9E, 0x0060A0)
+    val accent: Color get() = pick(0x3B70D6, 0x5B8DEF)
+    val accentHover: Color get() = pick(0x2E61C1, 0x6B9AF2)
+    val accentPressed: Color get() = pick(0x2857AF, 0x4779D6)
     val onAccent: Color get() = Color(0xFFFFFF)
 
     /** Secondary buttons: tertiary fill with a secondary border, like the reference header. */
-    val buttonBg: Color get() = pick(0xE8E8E8, 0x2B2D31)
-    val buttonHover: Color get() = pick(0xE0E0E0, 0x35373C)
-    val buttonPressed: Color get() = pick(0xD6D6D6, 0x37373D)
-    val buttonBorder: Color get() = pick(0xC0C0C0, 0x3E3E42)
+    val buttonBg: Color get() = pick(0xF0F2F6, 0x262A32)
+    val buttonHover: Color get() = pick(0xE7EAF0, 0x303641)
+    val buttonPressed: Color get() = pick(0xDDE2EA, 0x363D49)
+    val buttonBorder: Color get() = pick(0xD5DAE2, 0x3A414D)
 
     val danger: Color get() = pick(0xC50F1F, 0xD32F2F)
     val errorBg: Color get() = pick(0xFBE9E9, 0x3B2323)
@@ -86,22 +86,22 @@ object PiTheme {
 
     val success: Color get() = pick(0x107C10, 0x4CAF50)
 
-    val thinkingFg: Color get() = pick(0x666666, 0x999999)
-    val noticeFg: Color get() = pick(0x666666, 0x858585)
+    val thinkingFg: Color get() = pick(0x667085, 0xA1A7B3)
+    val noticeFg: Color get() = pick(0x667085, 0x9299A6)
 
     // -- text --------------------------------------------------------------
 
-    fun textFg(): Color = pick(0x333333, 0xCCCCCC)
+    fun textFg(): Color = pick(0x1F2329, 0xE7EAF0)
 
-    fun mutedFg(): Color = pick(0x666666, 0x858585)
+    fun mutedFg(): Color = pick(0x667085, 0xA1A7B3)
 
-    fun placeholderFg(): Color = pick(0xA0A0A0, 0x6E6E6E)
+    fun placeholderFg(): Color = pick(0x89919F, 0x737B89)
 
-    fun linkFg(): Color = pick(0x0066CC, 0x4A90E2)
+    fun linkFg(): Color = pick(0x2E61C1, 0x79A6F6)
 
     fun panelBg(): Color = chatBg
 
-    fun codeBg(): Color = pick(0xF5F5F5, 0x1E1E1E)
+    fun codeBg(): Color = pick(0xF2F4F7, 0x17191E)
 
     /** Oversized watermark glyph on the empty state. */
     fun logoFg(): Color = pick(0xD8DCE2, 0x35383E)

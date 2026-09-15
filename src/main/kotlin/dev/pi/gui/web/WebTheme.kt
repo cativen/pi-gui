@@ -17,6 +17,7 @@ object WebTheme {
         return mapOf(
             "chat-bg" to hex(PiTheme.chatBg),
             "surface-bg" to hex(PiTheme.surfaceBg),
+            "elevated-bg" to hex(PiTheme.elevatedBg),
             "input-bg" to hex(PiTheme.inputBg),
             "text-fg" to hex(PiTheme.textFg()),
             "muted-fg" to hex(PiTheme.mutedFg()),
@@ -27,6 +28,7 @@ object WebTheme {
             "accent-soft" to hex(shift(PiTheme.accent, red = 60, blue = 40)),
             // A pill's hover outline: the accent is too loud at full strength on every control.
             "accent-border" to hex(blend(PiTheme.accent, PiTheme.inputBg, 0.55)),
+            "accent-tint" to hex(blend(PiTheme.accent, PiTheme.chatBg, if (PiTheme.isDark()) 0.16 else 0.10)),
             "on-accent" to hex(PiTheme.onAccent),
             "border" to hex(PiTheme.toolBorder),
             "pill-bg" to hex(blend(PiTheme.surfaceBg, PiTheme.inputBg, 0.5)),
@@ -37,6 +39,10 @@ object WebTheme {
             "error-bg" to hex(PiTheme.errorBg),
             "error-fg" to hex(PiTheme.errorFg),
             "thinking-fg" to hex(PiTheme.thinkingFg),
+            "success-fg" to hex(PiTheme.success),
+            "success-bg" to hex(blend(PiTheme.success, PiTheme.chatBg, if (PiTheme.isDark()) 0.14 else 0.08)),
+            "assistant-bg" to hex(blend(PiTheme.surfaceBg, PiTheme.chatBg, if (PiTheme.isDark()) 0.72 else 0.90)),
+            "assistant-border" to hex(blend(PiTheme.textFg(), PiTheme.chatBg, if (PiTheme.isDark()) 0.14 else 0.10)),
             "divider" to hex(PiTheme.messageDivider),
             // Quoted family names: IDE fonts routinely contain spaces.
             "font" to "${font.size}px '${font.family}', system-ui, sans-serif",

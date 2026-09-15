@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;">
+  <title>Pi GUI settings</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body class="settings-app">
+<div id="settings-root">
+  <aside class="settings-sidebar">
+    <div class="settings-brand"><span class="settings-logo">π</span><span id="settings-title">Pi GUI</span></div>
+    <nav id="settings-nav" aria-label="Settings"></nav>
+    <button id="reset-settings" class="nav-reset" type="button"></button>
+  </aside>
+
+  <main class="settings-main">
+    <section class="settings-page active" data-page="general">
+      <header class="page-heading"><h1 data-label="settings.tab.general"></h1><p data-label="settings.general.description"></p></header>
+      <div class="settings-card">
+        <div class="card-heading"><h2 data-label="settings.appearance"></h2><p data-label="settings.appearance.description"></p></div>
+        <div id="theme-options" class="choice-grid three"></div>
+      </div>
+      <div class="settings-card">
+        <div class="card-heading"><h2 data-label="settings.conversation"></h2><p data-label="settings.conversation.description"></p></div>
+        <div id="conversation-options" class="setting-list"></div>
+        <div class="range-row">
+          <div><strong data-label="settings.fontSize"></strong><span data-label="settings.fontSize.description"></span></div>
+          <div class="range-control"><input id="font-size" type="range"><output id="font-size-value"></output></div>
+        </div>
+      </div>
+      <div class="settings-card">
+        <div class="card-heading"><h2 data-label="settings.language"></h2><p data-label="settings.language.description"></p></div>
+        <div id="language-options" class="choice-grid three"></div>
+      </div>
+    </section>
+
+    <section class="settings-page" data-page="providers">
+      <header class="page-heading page-heading-actions"><div><h1 data-label="settings.tab.providers"></h1><p data-label="settings.providers.description"></p></div><div class="header-actions"><button id="import-provider" class="button primary" type="button"></button><button id="import-provider-db" class="button" type="button"></button></div></header>
+      <div id="providers-status" class="inline-status" role="status"></div>
+      <div id="providers-list" class="resource-sections"></div>
+    </section>
+
+    <section class="settings-page" data-page="skills">
+      <header class="page-heading page-heading-actions"><div><h1 data-label="settings.tab.skills"></h1><p data-label="settings.skills.description"></p></div><button id="add-skill" class="button primary" type="button"></button></header>
+      <div id="skills-status" class="inline-status" role="status"></div>
+      <div id="skills-list" class="resource-grid"></div>
+    </section>
+
+    <section class="settings-page" data-page="plugins">
+      <header class="page-heading page-heading-actions"><div><h1 data-label="settings.tab.plugins"></h1><p data-label="settings.plugins.description"></p></div><button id="refresh-packages" class="button icon-button" type="button"></button></header>
+      <div class="settings-card install-card">
+        <div class="card-heading"><h2 data-label="plugins.add"></h2><button id="open-packages" class="text-link" type="button">pi.dev/packages ↗</button></div>
+        <label class="field"><span data-label="plugins.source"></span><div class="input-action"><input id="package-source" type="text" spellcheck="false" placeholder="npm:@scope/package"><button id="install-package" class="button primary" type="button"></button></div><small data-label="plugins.examples"></small></label>
+        <div id="package-scopes" class="scope-options"></div>
+        <label class="field"><span data-label="plugins.search"></span><div class="input-action"><input id="package-query" type="search"><button id="search-packages" class="button" type="button"></button></div></label>
+        <div id="package-results" class="search-results"></div>
+      </div>
+      <div id="plugins-status" class="inline-status" role="status"></div>
+      <div class="section-title"><h2 data-label="settings.installed"></h2><span id="packages-summary"></span></div>
+      <div id="packages-list" class="resource-grid"></div>
+    </section>
+
+    <section class="settings-page" data-page="cli">
+      <header class="page-heading"><h1 data-label="settings.tab.cli"></h1><p data-label="settings.cli.description"></p></header>
+      <div class="settings-card">
+        <label class="field"><span data-label="settings.cli.path"></span><div class="input-action"><input id="pi-path" type="text" spellcheck="false"><button id="choose-pi" class="button" type="button" data-label="settings.choose"></button></div></label>
+        <div id="pi-detected" class="field-hint"></div>
+        <label class="field"><span data-label="settings.cli.extraArgs"></span><input id="extra-args" type="text" spellcheck="false"><small data-label="settings.cli.extraArgs.hint"></small></label>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="modal" class="modal-backdrop" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-header"><h2 id="modal-title"></h2><button id="modal-close" class="icon-button close-button" type="button" aria-label="Close">×</button></div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+<script src="settings.js"></script>
+</body>
+</html>

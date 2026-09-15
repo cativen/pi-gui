@@ -18,6 +18,11 @@
     <div id="earlier"></div>
     <div id="messages"></div>
     <div id="streaming"></div>
+    <div id="activity" class="activity" role="status" aria-live="polite" hidden>
+      <span class="assistant-mark" aria-hidden="true">π</span>
+      <span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="sr-only"></span>
+    </div>
   </div>
 
   <div id="edits" class="edits" hidden></div>
@@ -41,7 +46,7 @@
       </div>
     </div>
 
-    <div id="menu" class="menu-popup" hidden></div>
+    <div id="menu" class="menu-popup" role="menu" hidden></div>
   </div>
 </div>
 <script src="chat.js"></script>

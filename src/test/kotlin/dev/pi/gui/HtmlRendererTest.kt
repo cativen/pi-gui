@@ -43,6 +43,7 @@ class HtmlRendererTest : BasePlatformTestCase() {
         assertTrue(html, html.contains("""class="msg msg-user""""))
         assertTrue(html, html.contains("""class="bubble""""))
         assertTrue(html, html.contains("hello there"))
+        assertTrue("user messages need an accessible identity", html.contains("aria-label="))
     }
 
     fun testAttachedImageCountIsShown() {
@@ -60,6 +61,9 @@ class HtmlRendererTest : BasePlatformTestCase() {
         assertTrue("markdown not applied", html.contains("<b>prose</b>"))
         assertTrue("code block missing", html.contains("""class="code-wrap""""))
         assertTrue("code not highlighted or emitted", html.contains("val x = 1") || html.contains("val"))
+        assertTrue("assistant identity is missing", html.contains("""class="assistant-mark""""))
+        assertTrue("copy control is not labelled", html.contains("aria-label="))
+        assertTrue("copy control should use a vector icon", html.contains("<svg"))
     }
 
     /** Collapsible blocks are `<details>`, so the browser owns the open/closed state. */

@@ -1,0 +1,105 @@
+package dev.pi.gui
+
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
+import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import dev.pi.gui.providers.ProvidersRegistry
+import dev.pi.gui.settings.PiSettings
+import dev.pi.gui.settings.ThemeMode
+import dev.pi.gui.settings.UiLanguage
+import dev.pi.gui.ui.settings.WebSettingsSurface
+import dev.pi.gui.web.PiWebView
+import dev.pi.gui.web.WebPage
+import java.io.File
+import kotlin.io.path.createTempDirectory
+import javax.swing.JComponent
+import javax.swing.JPanel
+
+/** Contract tests for the JCEF settings application. */
+class WebSettingsTest : BasePlatformTestCase() {
+
+    private lateinit var original: PiSettings.State
+
+    override fun setUp() {
+        super.setUp()
+        original = PiSettings.getInstance().state.copy()
+    }
+
+    override fun tearDown() {
+        try {
+            PiSettings.getInstance().loadState(original)
+        } finally {
+            super.tearDown()
+        }
+    }
+
+    private class RecordingPage : WebPage {
+        val posted = mutableListOf<Map<String, Any?>>()
+        var disposed = false
+        override val component: JComponent = JPanel()
+        override fun post(event: Map<String, Any?>) { posted += event }
+        override fun requestBrowserFocus() = Unit
+        override fun dispose() { disposed = true }
+    }
+
+    private fun settingsJs(): String = PiWebView::class.java.getResourceAsStream("/web/settings.js")!!
+        .bufferedReader().use { it.readText() }
+
+    fun testSettingsPageIsSelfContained() {
+        val document = PiWebView.document("settings")
+        assertFalse(document.contains("href=\"app.css\""))
+        assertFalse(document.contains("src=\"settings.js\""))
+        assertTrue(document.contains("id=\"settings-root\""))
+        assertTrue(document.contains("window.__piSend"))
+        assertTrue(document.contains("default-src 'none'"))
+    }
+
+    fun testEveryMessageSentBySettingsJsHasABridgeHandler() {
+        val sent = Regex("""send\(\{\s*type:\s*'([^']+)'""").findAll(settingsJs())
+            .map { it.groupValues[1] }.toSet()
+        assertTrue("settings.js declared no bridge messages", sent.size > 10)
+        assertEquals(emptySet<String>(), sent - WebSettingsSurface.HANDLED_MESSAGES)
+    }
+
+    fun testEveryNativeEventHasAJavaScriptHandler() {
+        val js = settingsJs()
+        val body = js.substringAfter("var handlers = {").substringBefore("\n  };")
+        val handlers = Regex("""^\s{4}(\w+): function""", RegexOption.MULTILINE)
+            .findAll(body).map { it.groupValues[1] }.toSet()
+        assertEquals(
+            emptySet<String>(),
+            setOf("theme", "i18n", "settings", "providers", "skills", "packages", "skillResults", "packageResults", "status") - handlers,
+        )
+    }
+
+    fun testGeneralAndCliDraftOnlyApplyWhenRequested() {
+        val page = RecordingPage()
+        var bridge: (JsonObject) -> Unit = {}
+        val registry = ProvidersRegistry(File(createTempDirectory("pi-settings-test").toFile(), "agent"))
+        val surface = WebSettingsSurface(project, registry) { callback ->
+            bridge = callback
+            page
+        }
+        try {
+            val settings = PiSettings.getInstance()
+            settings.themeMode = ThemeMode.SYSTEM
+            settings.language = UiLanguage.SIMPLIFIED_CHINESE
+            settings.extraArgs = ""
+
+            bridge(JsonParser.parseString("""{"type":"updateDraft","field":"theme","value":"DARK"}""").asJsonObject)
+            bridge(JsonParser.parseString("""{"type":"updateDraft","field":"language","value":"en"}""").asJsonObject)
+            bridge(JsonParser.parseString("""{"type":"updateDraft","field":"extraArgs","value":"--models test/*"}""").asJsonObject)
+
+            assertEquals(ThemeMode.SYSTEM, settings.themeMode)
+            assertTrue(surface.isModified())
+            surface.apply()
+            assertEquals(ThemeMode.DARK, settings.themeMode)
+            assertEquals(UiLanguage.ENGLISH, settings.language)
+            assertEquals("--models test/*", settings.extraArgs)
+            assertFalse(surface.isModified())
+        } finally {
+            surface.dispose()
+        }
+        assertTrue(page.disposed)
+    }
+}

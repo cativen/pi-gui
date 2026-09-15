@@ -107,6 +107,7 @@ class WebChatSurface(
                     "queue" to PiBundle.message("chat.queue"),
                     "stop" to PiBundle.message("chat.stop"),
                     "attach" to PiBundle.message("chat.attach.short"),
+                    "removeAttachment" to PiBundle.message("chat.attachment.remove"),
                     "provider" to PiBundle.message("chat.provider"),
                     "modelNone" to PiBundle.message("chat.model.none"),
                     "thinkingPrefix" to PiBundle.message("chat.thinking.prefix"),
@@ -117,6 +118,7 @@ class WebChatSurface(
                     "contextPrefix" to PiBundle.message("chat.context.prefix"),
                     "emptyTitle" to PiBundle.message("chat.empty.title"),
                     "emptySubtitle" to PiBundle.message("chat.empty.subtitle"),
+                    "working" to PiBundle.message("status.thinking"),
                     "noCommand" to PiBundle.message("chat.commands.none"),
                 ),
             )

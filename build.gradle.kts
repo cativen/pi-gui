@@ -49,12 +49,12 @@ intellijPlatform {
         name = "Pi GUI"
         version = project.version.toString()
         description = """
-            <p>A native JetBrains UI for the <b>pi</b> AI coding agent. Not affiliated with
+            <p>A JetBrains UI for the <b>pi</b> AI coding agent. Not affiliated with
             JetBrains or with the authors of pi.</p>
 
-            <p>Chat with pi inside the IDE. The interface is built entirely from IntelliJ
-            components &mdash; there is no embedded browser and no local web server &mdash; and
-            fenced code is rendered by the IDE's own lexers, so it gets real syntax highlighting.</p>
+            <p>Chat with pi inside the IDE. Conversation and settings surfaces use the IDE's
+            bundled JCEF runtime, with no local web server or remote UI origin. Native IDE APIs
+            still provide file pickers, diffs, confirmations and project integration.</p>
 
             <h4>What it does</h4>
             <ul>
@@ -87,7 +87,7 @@ intellijPlatform {
             <h4>1.0.0</h4>
             <p>First public release.</p>
             <ul>
-              <li>Native chat tool window for the pi coding agent &mdash; no embedded browser.</li>
+              <li>Responsive JCEF chat and settings surfaces hosted inside the IDE.</li>
               <li>Browse, resume and delete the sessions recorded for the current project.</li>
               <li>Streaming responses with collapsible thinking blocks, tool calls and results.</li>
               <li>Markdown rendering with IDE syntax highlighting for fenced code.</li>

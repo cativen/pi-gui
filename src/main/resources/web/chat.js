@@ -39,6 +39,7 @@
     compact: '<rect x="2.5" y="2.5" width="13" height="13" rx="3"/><circle cx="9" cy="9" r="3"/>',
     send: '<path d="M15 3 8 10M15 3l-4.5 12L8 10 3 7.5Z"/>',
     stop: '<rect x="5" y="5" width="8" height="8" rx="1.5"/>',
+    close: '<path d="m5 5 8 8M13 5l-8 8"/>',
     tick: '<path d="M3.5 9l3 3 6-7"/>'
   };
 
@@ -65,7 +66,7 @@
   function t(key) { return strings[key] || ''; }
 
   function init() {
-    ['scroller', 'empty', 'earlier', 'messages', 'streaming', 'edits', 'composer',
+    ['scroller', 'empty', 'earlier', 'messages', 'streaming', 'activity', 'edits', 'composer',
      'attachments', 'command-popup', 'composer-card', 'input', 'controls', 'attach',
      'provider', 'model', 'thinking', 'compact', 'stop', 'send', 'menu'
     ].forEach(function (id) { els[id] = document.getElementById(id); });
@@ -187,6 +188,8 @@
     i18n: function (e) {
       strings = e.strings || {};
       els.input.placeholder = t('placeholder');
+      var activityLabel = els.activity && els.activity.querySelector('.sr-only');
+      if (activityLabel) activityLabel.textContent = t('working');
       paintPills();
       paintEmpty();
     },
@@ -209,6 +212,7 @@
       els.earlier.innerHTML = e.earlier || '';
       els.messages.innerHTML = e.html || '';
       els.streaming.innerHTML = '';
+      els.activity.hidden = !state.running;
       scrollToBottom();
     },
 
@@ -233,6 +237,7 @@
     streaming: function (e) {
       if (e.html) els.empty.hidden = true;
       els.streaming.innerHTML = e.html || '';
+      els.activity.hidden = !state.running || !!e.html;
       if (state.atBottom) scrollToBottom();
     },
 
@@ -241,6 +246,7 @@
     running: function (e) {
       state.running = !!e.running;
       els.stop.hidden = !state.running;
+      els.activity.hidden = !state.running || !!els.streaming.innerHTML;
       // Sending mid-run steers the turn in progress rather than starting a new one, so the send
       // button stays live and only its wording changes.
       paintPills();
@@ -271,7 +277,8 @@
       items.forEach(function (it) {
         var row = document.createElement('div');
         row.className = 'edit-row';
-        var p = document.createElement('span');
+        var p = document.createElement('button');
+        p.type = 'button';
         p.className = 'edit-path';
         p.textContent = it.path;
         p.title = it.path;
@@ -304,7 +311,10 @@
         label.textContent = it.name;
         label.title = it.name;
         var x = document.createElement('button');
-        x.textContent = '×';
+        x.type = 'button';
+        x.innerHTML = icon('close');
+        x.title = t('removeAttachment');
+        x.setAttribute('aria-label', t('removeAttachment') + ': ' + it.name);
         x.addEventListener('click', function () {
           send({ type: 'removeAttachment', id: it.id });
         });
@@ -312,6 +322,7 @@
         chip.appendChild(x);
         els.attachments.appendChild(chip);
       });
+      updateSendState();
     },
 
     commands: function (e) {
@@ -323,6 +334,7 @@
     composer: function (e) {
       els.input.value = e.text || '';
       autoGrow();
+      updateSendState();
       hidePopup();
       if (e.focus) els.input.focus();
     },
@@ -334,6 +346,7 @@
       els.input.value = current + sep + (e.text || '') + ' ';
       els.input.selectionStart = els.input.selectionEnd = els.input.value.length;
       autoGrow();
+      updateSendState();
       els.input.focus();
     },
 
@@ -362,6 +375,7 @@
     // dropdown, where it does not make the control jump about as the number changes.
     pill(els.compact, 'compact', t('compactPrefix'), t('compactAuto'), true, state.running);
     els.compact.title = state.context.tooltip || '';
+    updateSendState();
   }
 
   function pill(el, glyph, prefix, label, dropdown, disabled) {
@@ -370,6 +384,11 @@
       '<span class="label">' + escapeHtml(label) + '</span>' +
       (dropdown ? CHEVRON : '');
     el.disabled = !!disabled;
+    el.setAttribute('aria-label', ((prefix || '') + ' ' + (label || '')).trim());
+    if (dropdown) {
+      el.setAttribute('aria-haspopup', 'menu');
+      el.setAttribute('aria-expanded', 'false');
+    }
   }
 
   function labelOf(items, id) {
@@ -392,6 +411,7 @@
 
     els.menu.innerHTML = '';
     els.menu.dataset.owner = anchor.id;
+    anchor.setAttribute('aria-expanded', 'true');
 
     if (note) {
       var head = document.createElement('div');
@@ -402,12 +422,15 @@
     }
 
     items.forEach(function (it) {
-      var row = document.createElement('div');
+      var row = document.createElement('button');
+      row.type = 'button';
       var chosen = selected !== null && selected !== undefined && it.id === selected;
       row.className = 'menu-item' + (chosen ? ' selected' : '');
+      row.setAttribute('role', 'menuitemradio');
+      row.setAttribute('aria-checked', chosen ? 'true' : 'false');
       row.innerHTML = (chosen ? icon('tick', 'tick') : '<span class="tick"></span>') +
         '<span class="menu-label">' + escapeHtml(it.label) + '</span>';
-      row.addEventListener('mousedown', function (ev) {
+      row.addEventListener('click', function (ev) {
         ev.preventDefault();
         hideMenu();
         pick(it.id);
@@ -428,6 +451,10 @@
   }
 
   function hideMenu() {
+    var owner = els.menu.dataset.owner;
+    if (owner && document.getElementById(owner)) {
+      document.getElementById(owner).setAttribute('aria-expanded', 'false');
+    }
     els.menu.hidden = true;
     els.menu.dataset.owner = '';
   }
@@ -464,7 +491,13 @@
 
   function onInput() {
     autoGrow();
+    updateSendState();
     updatePopup();
+  }
+
+  function updateSendState() {
+    if (!els.send || !els.input || !els.attachments) return;
+    els.send.disabled = !els.input.value.trim() && els.attachments.hidden;
   }
 
   function doSend() {

@@ -44,7 +44,7 @@ interface WebPage : Disposable {
  * app is three small files.
  */
 class PiWebView(
-    /** Page under `/web`, without the extension: "transcript" or "index". */
+    /** Page under `/web`, without the extension: for example "chat" or "settings". */
     private val page: String,
     private val onMessage: (JsonObject) -> Unit,
 ) : JPanel(BorderLayout()), WebPage {

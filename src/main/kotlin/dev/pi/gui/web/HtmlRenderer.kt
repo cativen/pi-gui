@@ -32,19 +32,24 @@ object HtmlRenderer {
     }
 
     private fun renderUser(message: PiMessage.User): String = buildString {
-        append("""<div class="msg msg-user"><div class="bubble">""")
+        val author = esc(PiBundle.message("message.you"))
+        append("""<article class="msg msg-user" aria-label="$author"><div class="user-stack">""")
+        append("""<div class="message-heading user-heading"><span>$author</span></div><div class="bubble"><div class="message-content">""")
         append(Markdown.proseToHtml(message.text))
         if (message.imageCount > 0) {
             append("""<p class="attached"><i>""")
             append(esc(PiBundle.message("message.imagesAttached", message.imageCount)))
             append("</i></p>")
         }
-        append("</div></div>")
+        append("</div></div></div></article>")
     }
 
     private fun renderAssistant(project: Project?, message: PiMessage.Assistant): String = buildString {
         val settings = PiSettings.getInstance()
-        append("""<div class="msg msg-assistant">""")
+        val author = esc(PiBundle.message("message.assistant"))
+        append("""<article class="msg msg-assistant" aria-label="$author">""")
+        append("""<div class="message-heading"><span class="assistant-mark" aria-hidden="true">π</span><span>$author</span></div>""")
+        append("""<div class="message-content">""")
 
         message.blocks.forEach { block ->
             when (block) {
@@ -79,7 +84,7 @@ object HtmlRenderer {
         }
 
         footerFor(message)?.let { append(it) }
-        append("</div>")
+        append("</div></article>")
     }
 
     private fun renderToolCall(
@@ -100,7 +105,7 @@ object HtmlRenderer {
     private fun renderToolResult(project: Project?, message: PiMessage.ToolResult): String {
         val text = truncate(message.text.ifBlank { "(no output)" })
         val lines = text.count { it == '\n' } + 1
-        return """<div class="msg msg-tool">""" + details(
+        return """<article class="msg msg-tool">""" + details(
             cls = if (message.isError) "toolresult error" else "toolresult",
             title = esc(
                 if (message.isError) PiBundle.message("message.error")
@@ -109,11 +114,11 @@ object HtmlRenderer {
             subtitle = esc(PiBundle.message("message.lines", lines)),
             open = false,
             body = codeBlock(project, null, text),
-        ) + "</div>"
+        ) + "</article>"
     }
 
     private fun renderNotice(message: PiMessage.Notice): String =
-        """<div class="msg msg-notice">${esc(message.text).replace("\n", "<br>")}</div>"""
+        """<div class="msg msg-notice" role="status"><span>${esc(message.text).replace("\n", "<br>")}</span></div>"""
 
     // ------------------------------------------------------------------ pieces
 
@@ -154,9 +159,11 @@ object HtmlRenderer {
         return buildString {
             append("""<div class="code-wrap"><div class="code-head"><span class="code-lang">""")
             append(label)
-            append("""</span><button class="code-copy" data-copy="1" title="""")
-            append(esc(PiBundle.message("code.copy")))
-            append("""">⧉</button></div><pre class="code">""")
+            val copy = esc(PiBundle.message("code.copy"))
+            append("""</span><button class="code-copy" data-copy="1" type="button" title="$copy" aria-label="$copy">""")
+            append("""<svg viewBox="0 0 18 18" aria-hidden="true"><rect x="6" y="6" width="8.5" height="8.5" rx="1.5"/><path d="M4.5 11.5h-1V3.5h8v1"/></svg><span>""")
+            append(copy)
+            append("""</span></button></div><pre class="code">""")
             append(body)
             append("</pre></div>")
         }

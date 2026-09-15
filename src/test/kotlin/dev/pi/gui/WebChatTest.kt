@@ -56,6 +56,26 @@ class WebChatTest : BasePlatformTestCase() {
         PiWebView::class.java.getResourceAsStream("/web/chat.js")!!
             .bufferedReader().use { it.readText() }
 
+    private fun chatCss(): String =
+        PiWebView::class.java.getResourceAsStream("/web/app.css")!!
+            .bufferedReader().use { it.readText() }
+
+    /** Wide tool windows should use the width the splitter gives them instead of centering 880px. */
+    fun testConversationAndComposerUseTheAvailableWidth() {
+        val css = chatCss()
+        assertFalse("conversation is still capped at 880px", css.contains("max-width: 880px"))
+        assertTrue("conversation containers must shrink inside narrow tool windows", css.contains("min-width: 0"))
+    }
+
+    /** A live reply is re-rendered frequently, so an entry fade here would restart every flush. */
+    fun testStreamingMessageDoesNotReplayTheEntryAnimation() {
+        val css = chatCss()
+        assertTrue(
+            "streaming messages must explicitly disable entry animation",
+            css.contains("#streaming .msg { animation: none; }"),
+        )
+    }
+
     // ------------------------------------------------------- plugin → the page
 
     /**
