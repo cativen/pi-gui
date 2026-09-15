@@ -2,7 +2,12 @@ package dev.pi.gui
 
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.util.Disposer
+import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import dev.pi.gui.model.PiMessage
 import dev.pi.gui.ui.ChatPanel
 import dev.pi.gui.ui.transcript.ChatSurface
@@ -200,6 +205,46 @@ class WebChatTest : BasePlatformTestCase() {
         com.intellij.openapi.util.Disposer.dispose(surface)
         assertTrue("the browser must go with the surface", page.disposed)
     }
+
+    // -------------------------------------------------------------- the bridge
+
+    /**
+     * A message from the page must reach the plugin on the EDT.
+     *
+     * CEF answers on its own handler thread. Every callback ends at Swing — a file chooser, the
+     * model combos — so calling straight through threw the platform's EDT assertion, and because
+     * the throw landed in the JSON parser's `catch` the only sign was a warning claiming the
+     * message was unparseable. Attach and the model list silently did nothing.
+     */
+    fun testMessagesFromThePageArriveOnTheEdt() {
+        if (!PiWebView.isAvailable()) {
+            println("SKIPPED: JCEF is not available in this environment")
+            return
+        }
+        val view = try {
+            PiWebView("chat") { seenOnEdt.add(ApplicationManager.getApplication().isDispatchThread) }
+        } catch (e: Throwable) {
+            println("SKIPPED: could not create a JCEF browser here (${e.javaClass.simpleName})")
+            return
+        }
+        try {
+            val delivered = CountDownLatch(1)
+            // Off the EDT, the way CEF does it.
+            ApplicationManager.getApplication().executeOnPooledThread {
+                view.deliver(JsonParser.parseString("""{"type":"attach"}""").asJsonObject)
+                delivered.countDown()
+            }
+            assertTrue("the message was never handed over", delivered.await(5, TimeUnit.SECONDS))
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+
+            assertEquals("the message did not arrive", 1, seenOnEdt.size)
+            assertTrue("handled off the EDT — every callback below this touches Swing", seenOnEdt[0])
+        } finally {
+            Disposer.dispose(view)
+        }
+    }
+
+    private val seenOnEdt = mutableListOf<Boolean>()
 
     // -------------------------------------------------------------- the panel
 

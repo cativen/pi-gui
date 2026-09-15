@@ -4,6 +4,7 @@ import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.jcef.JBCefApp
@@ -66,12 +67,13 @@ class PiWebView(
 
         query.addHandler { payload ->
             if (!disposed) {
-                try {
-                    val json = JsonParser.parseString(payload)
-                    if (json.isJsonObject) onMessage(json.asJsonObject)
+                val message = try {
+                    JsonParser.parseString(payload).takeIf { it.isJsonObject }?.asJsonObject
                 } catch (e: Exception) {
                     log.warn("Unparseable message from the web view: ${payload.take(200)}", e)
+                    null
                 }
+                if (message != null) deliver(message)
             }
             null
         }
@@ -85,6 +87,27 @@ class PiWebView(
 
         add(browser.component, BorderLayout.CENTER)
         browser.loadHTML(document(page))
+    }
+
+    /**
+     * Hand a message to the plugin on the EDT.
+     *
+     * CEF answers on its own handler thread (`CefHandlers-execution-*`), and everything a message
+     * reaches is Swing: the tool window, the model combos, a file chooser. Calling straight
+     * through threw "Access is allowed from Event Dispatch Thread (EDT) only" on the first
+     * message, and because the throw happened inside the parser's `catch` the only trace was a
+     * warning claiming the JSON was unparseable — Attach and the model list simply did nothing.
+     */
+    internal fun deliver(message: JsonObject) {
+        ApplicationManager.getApplication().invokeLater({
+            if (disposed) return@invokeLater
+            try {
+                onMessage(message)
+            } catch (e: Exception) {
+                // Never silent, and never mistaken for a parse failure again.
+                log.warn("Failed to handle '${message.get("type")}' from the web view", e)
+            }
+        }, { disposed })
     }
 
     /**

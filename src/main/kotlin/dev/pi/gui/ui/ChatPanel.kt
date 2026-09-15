@@ -310,13 +310,29 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                     ?.let { applySelectionToAgent(it) }
             }
         }
+        // The combos stay the source of truth, so a pick has to land in them before it goes to
+        // the agent — otherwise the pill keeps showing the old value until some later refresh
+        // happens to correct it, and a switch that worked looks like one that did nothing.
         surface.onSelectModel = { id ->
             if (!suppressModelEvents) {
-                allModels.firstOrNull { it.id == id }?.let { applySelectionToAgent(it) }
+                val showing = (providerCombo.selectedItem as? ProviderOption)?.id
+                val option = allModels.firstOrNull { it.id == id && it.provider == showing }
+                    ?: allModels.firstOrNull { it.id == id }
+                option?.let {
+                    suppressModelEvents = true
+                    modelCombo.selectedItem = it
+                    suppressModelEvents = false
+                    pushModels()
+                    applySelectionToAgent(it)
+                }
             }
         }
         surface.onSelectThinking = { level ->
             if (!suppressModelEvents) {
+                suppressModelEvents = true
+                thinkingCombo.selectedItem = level
+                suppressModelEvents = false
+                pushModels()
                 PiSettings.getInstance().activeThinking = level
                 rpc?.setThinkingLevel(level)
             }
