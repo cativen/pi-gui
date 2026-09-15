@@ -16,7 +16,10 @@ import com.intellij.ui.OnePixelSplitter
 import dev.pi.gui.i18n.PiBundle
 import dev.pi.gui.settings.PiSettings
 import dev.pi.gui.ui.settings.PiSettingsDialog
+import dev.pi.gui.ui.settings.WebSettingsSurface
+import dev.pi.gui.web.PiWebView
 import java.awt.BorderLayout
+import java.awt.CardLayout
 import javax.swing.JPanel
 
 /** Root content of the Pi GUI tool window: session sidebar plus the conversation view. */
@@ -25,13 +28,18 @@ class PiMainPanel(private val project: Project) : JPanel(BorderLayout()), Dispos
     private val chat = ChatPanel(project)
     private val sessions = SessionListPanel(project)
     private val splitter = OnePixelSplitter(false, 0.3f)
+    private val contentCards = CardLayout()
+    private val content = JPanel(contentCards)
     private var sidebarVisible = true
     private var toolbarComponent: JPanel? = null
+    private var settingsSurface: WebSettingsSurface? = null
+    private var showingSettings = false
 
     /** Rebuilds the chrome after a settings change — the toolbar text is language-dependent. */
     private val settingsListener: () -> Unit = {
         com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
             rebuildToolbar()
+            toolbarComponent?.isVisible = !showingSettings
             sessions.applySettings()
             chat.applySettings()
             revalidate()
@@ -48,16 +56,19 @@ class PiMainPanel(private val project: Project) : JPanel(BorderLayout()), Dispos
         // `/new` and `/resume` drive the same chrome the toolbar buttons do.
         chat.onNewSessionRequested = { newSession() }
         chat.onShowSessionsRequested = {
+            showChat()
             if (!sidebarVisible) toggleSidebar()
             sessions.refresh()
             sessions.focusList()
         }
+        chat.onShowSettingsRequested = { showSettings() }
 
         splitter.firstComponent = sessions
         splitter.secondComponent = chat
 
         rebuildToolbar()
-        add(splitter, BorderLayout.CENTER)
+        content.add(splitter, CHAT_CARD)
+        add(content, BorderLayout.CENTER)
 
         PiSettings.getInstance().addChangeListener(settingsListener)
         sessions.refresh()
@@ -124,9 +135,7 @@ class PiMainPanel(private val project: Project) : JPanel(BorderLayout()), Dispos
             PiBundle.message("toolbar.settings.desc"),
             AllIcons.General.GearPlain,
         ) {
-            override fun actionPerformed(e: AnActionEvent) {
-                PiSettingsDialog(project).show()
-            }
+            override fun actionPerformed(e: AnActionEvent) = showSettings()
             override fun getActionUpdateThread() = com.intellij.openapi.actionSystem.ActionUpdateThread.EDT
         })
 
@@ -147,6 +156,7 @@ class PiMainPanel(private val project: Project) : JPanel(BorderLayout()), Dispos
     }
 
     fun newSession() {
+        showChat()
         chat.startNewSession()
         sessions.refresh()
     }
@@ -162,9 +172,49 @@ class PiMainPanel(private val project: Project) : JPanel(BorderLayout()), Dispos
     fun focusInput() = chat.focusInput()
 
     /** Insert text (typically `@path` mentions) into the composer. */
-    fun appendToInput(text: String) = chat.appendToInput(text)
+    fun appendToInput(text: String) {
+        showChat()
+        chat.appendToInput(text)
+    }
+
+    private fun showSettings() {
+        if (!PiWebView.isAvailable()) {
+            PiSettingsDialog(project).show()
+            return
+        }
+        val surface = settingsSurface ?: WebSettingsSurface(
+            project = project,
+            embedded = true,
+            onClose = ::showChat,
+        ).also {
+            settingsSurface = it
+            Disposer.register(this, it)
+            content.add(it.component, SETTINGS_CARD)
+        }
+        surface.activate()
+        showingSettings = true
+        toolbarComponent?.isVisible = false
+        contentCards.show(content, SETTINGS_CARD)
+        revalidate()
+        repaint()
+    }
+
+    private fun showChat() {
+        if (!showingSettings) return
+        showingSettings = false
+        toolbarComponent?.isVisible = true
+        contentCards.show(content, CHAT_CARD)
+        chat.focusInput()
+        revalidate()
+        repaint()
+    }
 
     override fun dispose() {
         PiSettings.getInstance().removeChangeListener(settingsListener)
+    }
+
+    private companion object {
+        const val CHAT_CARD = "chat"
+        const val SETTINGS_CARD = "settings"
     }
 }

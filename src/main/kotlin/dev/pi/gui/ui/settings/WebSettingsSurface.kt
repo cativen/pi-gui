@@ -41,6 +41,8 @@ import javax.swing.filechooser.FileNameExtensionFilter
 class WebSettingsSurface(
     private val project: Project?,
     private val registry: ProvidersRegistry = ProvidersRegistry.default(),
+    private val embedded: Boolean = false,
+    private val onClose: () -> Unit = {},
     page: ((JsonObject) -> Unit) -> WebPage = { PiWebView("settings", it) },
 ) : Disposable {
 
@@ -70,6 +72,17 @@ class WebSettingsSurface(
         pushTheme()
     }
 
+    /** Refresh data every time the in-tool-window page is entered. */
+    fun activate() {
+        draft = Draft.read()
+        pushTheme()
+        pushStrings()
+        pushState()
+        reloadProviders()
+        reloadSkills()
+        reloadPackages()
+    }
+
     fun apply() {
         val settings = PiSettings.getInstance()
         settings.themeMode = draft.theme
@@ -91,10 +104,16 @@ class WebSettingsSurface(
             "ready" -> {
                 pushTheme(); pushStrings(); pushState(); reloadProviders(); reloadSkills(); reloadPackages()
             }
-            "updateDraft" -> updateDraft(text("field"), message["value"])
+            "closeSettings" -> onClose()
+            "updateDraft" -> {
+                val field = text("field")
+                updateDraft(field, message["value"])
+                if (embedded) applyEmbeddedChange(field)
+            }
             "resetDraft" -> {
                 draft = Draft.defaults()
                 pushState()
+                if (embedded) applyEmbeddedChange("all")
             }
             "choosePi" -> choosePiExecutable()
             "importProvidersAuto" -> importProviders { CcSwitchImporter.importAuto() }
@@ -137,7 +156,16 @@ class WebSettingsSurface(
         if (chooser.showOpenDialog(component) == JFileChooser.APPROVE_OPTION) {
             draft = draft.copy(piPath = chooser.selectedFile?.absolutePath.orEmpty())
             pushState()
+            if (embedded) applyEmbeddedChange("piPath")
         }
+    }
+
+    private fun applyEmbeddedChange(field: String) {
+        apply()
+        if (field == "theme" || field == "fontSize" || field == "all") pushTheme()
+        if (field == "language" || field == "all") pushStrings()
+        pushState()
+        post("saved", "message" to PiBundle.message("settings.autoSaved"))
     }
 
     private fun detectPi() = pooled {
@@ -169,13 +197,14 @@ class WebSettingsSurface(
         status("providers", PiBundle.message("providers.importing"), busy = true)
         pooled {
             val outcome = runCatching(block).getOrElse { CcSwitchImporter.Outcome(emptyList(), emptyList()) }
-            val summary = registry.import(outcome)
-            val message = if (outcome.imported.isEmpty() && outcome.skipped.isEmpty()) {
+            if (outcome.imported.isEmpty() && outcome.skipped.isEmpty()) {
                 PiBundle.message("providers.import.empty")
-            } else {
-                PiBundle.message("providers.import.done", summary.added, summary.updated, summary.skipped.size) +
-                    (outcome.source?.let { PiBundle.message("providers.import.source", it) } ?: "")
+                    .let { status("providers", it) }
+                return@pooled
             }
+            val summary = registry.import(outcome)
+            val message = PiBundle.message("providers.import.done", summary.added, summary.updated, summary.skipped.size) +
+                (outcome.source?.let { PiBundle.message("providers.import.source", it) } ?: "")
             status("providers", message)
             reloadProviders()
         }
@@ -416,6 +445,7 @@ class WebSettingsSurface(
                 "detected" to detectedPi,
                 "detecting" to detectingPi,
                 "projectAvailable" to (project?.basePath != null),
+                "embedded" to embedded,
             ),
         )
     }
@@ -488,7 +518,7 @@ class WebSettingsSurface(
 
     companion object {
         internal val HANDLED_MESSAGES = setOf(
-            "ready", "updateDraft", "resetDraft", "choosePi", "importProvidersAuto",
+            "ready", "closeSettings", "updateDraft", "resetDraft", "choosePi", "importProvidersAuto",
             "importProvidersDb", "enableProvider", "saveProvider", "deleteProvider", "toggleSkill",
             "searchSkills", "installSkill", "searchPackages", "installPackage", "removePackage",
             "refreshPackages", "openPackages",
@@ -505,7 +535,8 @@ class WebSettingsSurface(
             "settings.language.en", "settings.language.zhCN", "settings.language.zhTW",
             "settings.cli.description", "settings.cli.path", "settings.cli.extraArgs", "settings.cli.extraArgs.hint",
             "settings.cli.notFound", "settings.detected", "settings.detecting", "settings.choose", "settings.save", "settings.cancel",
-            "settings.saved", "settings.installed", "settings.providers.description", "settings.skills.description",
+            "settings.saved", "settings.autoSaved", "settings.backToChat", "settings.installed",
+            "settings.providers.description", "settings.skills.description",
             "settings.plugins.description", "providers.claudeSection", "providers.codexSection",
             "providers.import.auto", "providers.import.db", "providers.empty.hint", "providers.enable",
             "providers.edit", "providers.delete", "providers.current", "providers.dialog.title",

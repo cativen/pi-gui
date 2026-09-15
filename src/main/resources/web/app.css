@@ -123,6 +123,38 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
 .nav-reset { flex: 0 0 auto; border-top: 1px solid var(--divider); border-radius: 0; margin-top: 12px; padding-top: 14px; }
 
 .settings-main { min-width: 0; overflow: auto; background: var(--chat-bg); }
+.embedded-toolbar {
+  position: sticky;
+  z-index: 20;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 7px clamp(18px, 4vw, 48px);
+  border-bottom: 1px solid var(--divider);
+  background: color-mix(in srgb, var(--chat-bg) 94%, transparent);
+  backdrop-filter: blur(12px);
+}
+.embedded-toolbar[hidden] { display: none; }
+.embedded-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-fg);
+  font: inherit;
+  cursor: pointer;
+}
+.embedded-back:hover { background: var(--pill-hover-bg); }
+.settings-icon { display: block; flex: 0 0 auto; }
+.save-state { color: var(--success-fg); font-size: 0.88em; opacity: 0; transform: translateY(2px); transition: opacity 140ms ease-out, transform 140ms ease-out; }
+.save-state.visible { opacity: 1; transform: none; }
+.embedded-settings .settings-page { padding-top: 22px; }
 .settings-page { display: none; width: 100%; max-width: 1120px; margin: 0 auto; padding: 30px clamp(24px, 4vw, 56px) 48px; }
 .settings-page.active { display: block; animation: settings-page-in 140ms ease-out; }
 
@@ -215,6 +247,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
   cursor: pointer;
 }
 .button:hover, .icon-button:hover { border-color: var(--accent-border); background: var(--pill-hover-bg); }
+.button:active, .icon-button:active, .choice:active, .settings-nav-item:active, .embedded-back:active { filter: brightness(0.92); }
 .button.primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
 .button.primary:hover { background: var(--accent-hover); }
 .button.small { min-height: 29px; padding: 4px 9px; font-size: 0.88em; }
@@ -316,6 +349,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
   .nav-reset { justify-content: center; overflow: hidden; font-size: 0; }
   .nav-reset::first-letter { font-size: 16px; }
   .settings-page { padding: 22px 18px 36px; }
+  .embedded-toolbar { padding-inline: 12px; }
   .page-heading-actions { flex-direction: column; }
   .header-actions { justify-content: flex-start; }
   .choice-grid.three { grid-template-columns: 1fr; }
@@ -327,6 +361,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
 @media (prefers-reduced-motion: reduce) {
   .settings-page.active, .inline-status.busy::before { animation: none; }
   .switch, .switch::after { transition: none; }
+  .save-state { transition: none; }
 }
 
 .sr-only {

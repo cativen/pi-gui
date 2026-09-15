@@ -16,6 +16,10 @@
   </aside>
 
   <main class="settings-main">
+    <div id="embedded-toolbar" class="embedded-toolbar" hidden>
+      <button id="settings-back" class="embedded-back" type="button"></button>
+      <span id="settings-save-state" class="save-state" role="status" aria-live="polite"></span>
+    </div>
     <section class="settings-page active" data-page="general">
       <header class="page-heading"><h1 data-label="settings.tab.general"></h1><p data-label="settings.general.description"></p></header>
       <div class="settings-card">
@@ -37,13 +41,13 @@
     </section>
 
     <section class="settings-page" data-page="providers">
-      <header class="page-heading page-heading-actions"><div><h1 data-label="settings.tab.providers"></h1><p data-label="settings.providers.description"></p></div><div class="header-actions"><button id="import-provider" class="button primary" type="button"></button><button id="import-provider-db" class="button" type="button"></button></div></header>
+      <header class="page-heading page-heading-actions"><div><h1 data-label="settings.tab.providers"></h1><p data-label="settings.providers.description"></p></div><div class="header-actions"><button id="import-provider" class="button primary" data-busy-area="providers" type="button"></button><button id="import-provider-db" class="button" data-busy-area="providers" type="button"></button></div></header>
       <div id="providers-status" class="inline-status" role="status"></div>
       <div id="providers-list" class="resource-sections"></div>
     </section>
 
     <section class="settings-page" data-page="skills">
-      <header class="page-heading page-heading-actions"><div><h1 data-label="settings.tab.skills"></h1><p data-label="settings.skills.description"></p></div><button id="add-skill" class="button primary" type="button"></button></header>
+      <header class="page-heading page-heading-actions"><div><h1 data-label="settings.tab.skills"></h1><p data-label="settings.skills.description"></p></div><button id="add-skill" class="button primary" data-busy-area="skills" type="button"></button></header>
       <div id="skills-status" class="inline-status" role="status"></div>
       <div id="skills-list" class="resource-grid"></div>
     </section>
@@ -52,9 +56,9 @@
       <header class="page-heading page-heading-actions"><div><h1 data-label="settings.tab.plugins"></h1><p data-label="settings.plugins.description"></p></div><button id="refresh-packages" class="button icon-button" type="button"></button></header>
       <div class="settings-card install-card">
         <div class="card-heading"><h2 data-label="plugins.add"></h2><button id="open-packages" class="text-link" type="button">pi.dev/packages ↗</button></div>
-        <label class="field"><span data-label="plugins.source"></span><div class="input-action"><input id="package-source" type="text" spellcheck="false" placeholder="npm:@scope/package"><button id="install-package" class="button primary" type="button"></button></div><small data-label="plugins.examples"></small></label>
+        <label class="field"><span data-label="plugins.source"></span><div class="input-action"><input id="package-source" type="text" spellcheck="false" placeholder="npm:@scope/package"><button id="install-package" class="button primary" data-busy-area="plugins" type="button"></button></div><small data-label="plugins.examples"></small></label>
         <div id="package-scopes" class="scope-options"></div>
-        <label class="field"><span data-label="plugins.search"></span><div class="input-action"><input id="package-query" type="search"><button id="search-packages" class="button" type="button"></button></div></label>
+        <label class="field"><span data-label="plugins.search"></span><div class="input-action"><input id="package-query" type="search"><button id="search-packages" class="button" data-busy-area="plugins" type="button"></button></div></label>
         <div id="package-results" class="search-results"></div>
       </div>
       <div id="plugins-status" class="inline-status" role="status"></div>

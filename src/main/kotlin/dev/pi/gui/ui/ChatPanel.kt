@@ -238,6 +238,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     /** Set by the tool window so `/new` and `/resume` can drive the sidebar too. */
     var onNewSessionRequested: (() -> Unit)? = null
     var onShowSessionsRequested: (() -> Unit)? = null
+    var onShowSettingsRequested: (() -> Unit)? = null
 
     init {
         buildUi()
@@ -1252,7 +1253,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         // Everything below either needs no agent or brings one up on demand.
         when (name) {
             "new" -> onNewSessionRequested?.invoke() ?: startNewSession()
-            "settings" -> PiSettingsDialog(project).show()
+            "settings" -> onShowSettingsRequested?.invoke() ?: PiSettingsDialog(project).show()
             "resume" -> onShowSessionsRequested?.invoke()
             "hotkeys" -> showHotkeys()
             "quit" -> {

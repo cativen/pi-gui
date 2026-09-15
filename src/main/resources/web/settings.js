@@ -16,8 +16,24 @@
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
+  var ICONS = {
+    back: '<path d="m10.5 4.5-4.5 4.5 4.5 4.5M6.5 9H15"/>',
+    general: '<circle cx="9" cy="9" r="2.25"/><path d="M9 2.75v1.5M9 13.75v1.5M2.75 9h1.5M13.75 9h1.5M4.6 4.6l1.05 1.05M12.35 12.35l1.05 1.05M13.4 4.6l-1.05 1.05M5.65 12.35 4.6 13.4"/>',
+    provider: '<rect x="3" y="4" width="12" height="10" rx="2"/><path d="M6 8h6M6 11h4"/>',
+    skill: '<path d="m9 2 1.35 4.15L14.5 7.5l-4.15 1.35L9 13l-1.35-4.15L3.5 7.5l4.15-1.35L9 2Z"/><path d="m14 11 .55 1.45L16 13l-1.45.55L14 15l-.55-1.45L12 13l1.45-.55L14 11Z"/>',
+    plugin: '<path d="M6.5 3H4a1 1 0 0 0-1 1v2.5a2 2 0 1 1 0 4V14a1 1 0 0 0 1 1h3.5a2 2 0 1 1 4 0H14a1 1 0 0 0 1-1v-3.5a2 2 0 1 1 0-4V4a1 1 0 0 0-1-1h-3.5a2 2 0 1 1-4 0Z"/>',
+    terminal: '<path d="m3.5 5 3.5 3.5L3.5 12M9 12.5h5.5"/>'
+  };
+
+  function icon(name) {
+    return '<svg class="settings-icon" viewBox="0 0 18 18" width="18" height="18" fill="none" ' +
+      'stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" ' +
+      'aria-hidden="true">' + ICONS[name] + '</svg>';
+  }
+
   function init() {
-    ['settings-title', 'settings-nav', 'reset-settings', 'theme-options', 'conversation-options',
+    ['settings-title', 'settings-nav', 'reset-settings', 'embedded-toolbar', 'settings-back',
+      'settings-save-state', 'theme-options', 'conversation-options',
       'font-size', 'font-size-value', 'language-options', 'import-provider', 'import-provider-db',
       'providers-list', 'providers-status', 'add-skill', 'skills-list', 'skills-status',
       'refresh-packages', 'open-packages', 'package-source', 'install-package', 'package-scopes',
@@ -26,12 +42,14 @@
       'modal-body', 'modal-close'].forEach(function (id) { els[id] = document.getElementById(id); });
 
     els['reset-settings'].addEventListener('click', function () { send({ type: 'resetDraft' }); });
+    els['settings-back'].addEventListener('click', function () { send({ type: 'closeSettings' }); });
     els['font-size'].addEventListener('input', function () {
       els['font-size-value'].textContent = this.value + 'px';
       updateDraft('fontSize', Number(this.value));
     });
-    els['pi-path'].addEventListener('input', function () { updateDraft('piPath', this.value); });
-    els['extra-args'].addEventListener('input', function () { updateDraft('extraArgs', this.value); });
+    // Save text fields once editing is complete; sending every keystroke across JCEF is wasteful.
+    els['pi-path'].addEventListener('change', function () { updateDraft('piPath', this.value); });
+    els['extra-args'].addEventListener('change', function () { updateDraft('extraArgs', this.value); });
     els['choose-pi'].addEventListener('click', function () { send({ type: 'choosePi' }); });
     els['import-provider'].addEventListener('click', function () { send({ type: 'importProvidersAuto' }); });
     els['import-provider-db'].addEventListener('click', function () { send({ type: 'importProvidersDb' }); });
@@ -72,6 +90,8 @@
     settings: function (event) {
       state.settings = event.value || {};
       state.projectAvailable = !!state.settings.projectAvailable;
+      document.body.classList.toggle('embedded-settings', !!state.settings.embedded);
+      els['embedded-toolbar'].hidden = !state.settings.embedded;
       paintSettings();
     },
     providers: function (event) { state.providers = event.items || []; paintProviders(); },
@@ -90,21 +110,32 @@
       target.className = 'inline-status' + (event.busy ? ' busy' : '') + (event.error ? ' error' : '');
       var skillResults = event.area === 'skills' && document.getElementById('skill-results');
       if (skillResults && event.busy) skillResults.innerHTML = '<div class="resource-empty"><p>' + esc(event.message || '') + '</p></div>';
+      document.querySelectorAll('[data-busy-area="' + event.area + '"]').forEach(function (button) {
+        button.disabled = !!event.busy;
+      });
+    },
+    saved: function (event) {
+      var target = els['settings-save-state'];
+      target.textContent = '✓ ' + (event.message || '');
+      target.classList.add('visible');
+      window.clearTimeout(target._hideTimer);
+      target._hideTimer = window.setTimeout(function () { target.classList.remove('visible'); }, 1800);
     }
   };
 
   function paintChrome() {
     els['settings-title'].textContent = t('settings.title');
+    els['settings-back'].innerHTML = icon('back') + '<span>' + esc(t('settings.backToChat')) + '</span>';
     els['reset-settings'].textContent = '↶  ' + t('settings.reset');
     document.querySelectorAll('[data-label]').forEach(function (node) { node.textContent = t(node.dataset.label); });
     var tabs = [
-      ['general', '◉', 'settings.tab.general'], ['providers', '◇', 'settings.tab.providers'],
-      ['skills', '✦', 'settings.tab.skills'], ['plugins', '⬡', 'settings.tab.plugins'],
-      ['cli', '>_', 'settings.tab.cli']
+      ['general', 'general', 'settings.tab.general'], ['providers', 'provider', 'settings.tab.providers'],
+      ['skills', 'skill', 'settings.tab.skills'], ['plugins', 'plugin', 'settings.tab.plugins'],
+      ['cli', 'terminal', 'settings.tab.cli']
     ];
     els['settings-nav'].innerHTML = tabs.map(function (tab, index) {
       return '<button class="settings-nav-item' + (index === 0 ? ' active' : '') + '" data-page="' + tab[0] +
-        '" type="button"><span aria-hidden="true">' + tab[1] + '</span>' + esc(t(tab[2])) + '</button>';
+        '" type="button"><span aria-hidden="true">' + icon(tab[1]) + '</span>' + esc(t(tab[2])) + '</button>';
     }).join('');
     els['settings-nav'].querySelectorAll('button').forEach(function (button) {
       button.addEventListener('click', function () { showPage(button.dataset.page); });
@@ -231,8 +262,8 @@
   function paintSkillResults(items) {
     var host = document.getElementById('skill-results'); if (!host) return;
     host.innerHTML = items.length ? items.map(function (item) {
-      return '<div class="search-result"><div><strong>' + esc(item.name) + '</strong><code>' + esc(item.id) + '</code><small>' + esc(item.installs) + '</small></div><div><button class="button small install-skill" data-id="' + esc(item.id) + '" data-scope="GLOBAL">' + esc(t('skills.install.global')) + '</button>' +
-        '<button class="button small install-skill" data-id="' + esc(item.id) + '" data-scope="PROJECT" ' + (state.projectAvailable ? '' : 'disabled') + '>' + esc(t('skills.install.project')) + '</button></div></div>';
+      return '<div class="search-result"><div><strong>' + esc(item.name) + '</strong><code>' + esc(item.id) + '</code><small>' + esc(item.installs) + '</small></div><div><button class="button small install-skill" data-busy-area="skills" data-id="' + esc(item.id) + '" data-scope="GLOBAL">' + esc(t('skills.install.global')) + '</button>' +
+        '<button class="button small install-skill" data-busy-area="skills" data-id="' + esc(item.id) + '" data-scope="PROJECT" ' + (state.projectAvailable ? '' : 'disabled') + '>' + esc(t('skills.install.project')) + '</button></div></div>';
     }).join('') : emptyState('⌕', t('skills.search.none'));
     host.querySelectorAll('.install-skill').forEach(function (button) { button.addEventListener('click', function () { send({ type: 'installSkill', id: button.dataset.id, scope: button.dataset.scope }); }); });
   }
