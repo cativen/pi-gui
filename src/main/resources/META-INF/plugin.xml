@@ -1,4 +1,13 @@
-<idea-plugin>
+<!--
+  require-restart: this plugin cannot be unloaded, and the IDE says so itself — "Plugin
+  dev.pi.pigui is not unload-safe because class loader cannot be unloaded". With a JCEF browser
+  and a pi process attached it never will be. Loading it dynamically anyway leaves a
+  half-registered state: the tool window comes up, but the add-to-group entries do not reach the
+  popup menus that were already built, so "Send File Path to Pi GUI" disappears from the
+  right-click menu until the next restart. A restart on install costs seconds and makes the
+  outcome the same every time.
+-->
+<idea-plugin require-restart="true">
     <depends>com.intellij.modules.platform</depends>
 
     <extensions defaultExtensionNs="com.intellij">
