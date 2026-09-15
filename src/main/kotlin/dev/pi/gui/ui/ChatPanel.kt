@@ -206,6 +206,25 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     private var rpc: PiRpcClient? = null
     private var session: SessionInfo? = null
+
+    /**
+     * The session file the live agent is actually writing to.
+     *
+     * A brand-new chat has no [session] until pi creates the file and reports it on `get_state`,
+     * and that path is what a backgrounded agent is keyed by — so it is remembered here.
+     */
+    private var liveSessionFile: String? = null
+
+    /**
+     * Agents left running after the user moved on, keyed by the session file they are writing.
+     *
+     * Starting or opening another session used to kill the agent mid-turn, throwing away the
+     * reply the user was waiting for. A turn in flight is handed off here instead: pi finishes
+     * it and writes the result to its own session file, and the plugin stops the process once
+     * the turn ends. Keying by file means reopening that session adopts the running agent rather
+     * than starting a second one on top of the same file.
+     */
+    private val detached = LinkedHashMap<String, PiRpcClient>()
     private var isRunning = false
     private var phase: AgentPhase = AgentPhase.Idle
     private var pendingUserText: String? = null
@@ -1490,8 +1509,10 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         // around the list feel laggy. Pick up disk changes via the refresh button instead.
         if (loadedSessionPath == info.filePath) return
         loadedSessionPath = info.filePath
-        // A restart is coming right away for the new session; queued start results survive it.
-        stopAgent(expectRestart = true)
+        if (!detachRunningAgent()) {
+            // A restart is coming right away for the new session; queued start results survive it.
+            stopAgent(expectRestart = true)
+        }
         session = info
         messages.clear()
         // Another session's percentage must not linger while the new one loads.
@@ -1509,6 +1530,19 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                 setStatus(statusSummary())
             }
         }
+        // This session may still have an agent finishing a turn in the background. Adopting it
+        // shows the rest of that turn live, and keeps two processes off one session file.
+        val resumed = detached.remove(info.filePath)
+        if (resumed != null) {
+            rpc = resumed
+            liveSessionFile = info.filePath
+            setRunning(true)
+            phase = AgentPhase.WaitingModel
+            setStatus(statusSummary())
+            refreshModels(resumed)
+            refreshContextUsage()
+            return
+        }
         // Resuming binds a fresh process to this session; having it ready repopulates the
         // footer combos before the first prompt.
         scheduleEagerAgentStart()
@@ -1522,8 +1556,12 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     /** Discard the current conversation and begin a fresh one in this project. */
     fun startNewSession() {
-        // A restart is coming right away; queued start results survive it.
-        stopAgent(expectRestart = true)
+        // A turn already running belongs to the session being left, not to this one: let it
+        // finish in the background rather than throwing away the reply being waited for.
+        if (!detachRunningAgent()) {
+            // A restart is coming right away; queued start results survive it.
+            stopAgent(expectRestart = true)
+        }
         commandPopup.hide()
         // Skills and extensions may have been added since; re-ask rather than serve a stale list.
         commandRegistry.invalidate()
@@ -1840,7 +1878,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                 sessionFile = session?.filePath,
                 extraArgs = PiSettings.getInstance().parsedExtraArgs(),
             )
-            client.addListener(AgentListener())
+            client.addListener(AgentListener(client))
             try {
                 client.start()
             } catch (e: Exception) {
@@ -1887,7 +1925,64 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         }
     }
 
+    /**
+     * Hand the live agent off to the background instead of killing it.
+     *
+     * Only worth doing while a turn is in flight — an idle agent has nothing to lose, and leaving
+     * processes about costs memory. Returns true when an agent was backgrounded.
+     */
+    private fun detachRunningAgent(): Boolean {
+        val client = rpc ?: return false
+        if (!isRunning) return false
+        // No file yet means pi has not created one; key it uniquely so it is still stopped later,
+        // it just cannot be adopted back.
+        val key = liveSessionFile ?: session?.filePath ?: "pi.detached.${System.nanoTime()}"
+
+        detached[key]?.takeIf { it !== client }?.stop()
+        detached[key] = client
+        client.addListener(DetachedListener(client))
+
+        // Hand over without stopping the process: stopAgent() would kill the very turn this is
+        // trying to save, so only the panel's own state is wound down here.
+        rpc = null
+        repaintTimer.stop()
+        eagerStartTimer.stop()
+        streaming.end()
+        streamingComponent = null
+        setRunning(false)
+        phase = AgentPhase.Idle
+        providerCombo.isEnabled = false
+        modelCombo.isEnabled = false
+        thinkingCombo.isEnabled = false
+        liveSessionFile = null
+        return true
+    }
+
+    /** Watches a backgrounded agent so its process does not outlive the turn it was kept for. */
+    private inner class DetachedListener(private val client: PiRpcClient) : PiRpcClient.Listener {
+        override fun onEvent(event: JsonObject) {
+            val type = event.get("type")?.asStringOrNull() ?: return
+            if (type != "agent_end") return
+            if (event.get("willRetry")?.asBoolean == true) return
+            onEdt { releaseDetached(client) }
+        }
+
+        override fun onExit(exitCode: Int, stderr: String) {
+            onEdt { detached.values.remove(client) }
+        }
+    }
+
+    /** The turn finished: stop the process, unless the user came back and it is live again. */
+    private fun releaseDetached(client: PiRpcClient) {
+        if (rpc === client) return
+        if (detached.values.remove(client)) {
+            client.stop()
+            onSessionChanged?.invoke()
+        }
+    }
+
     private fun stopAgent(expectRestart: Boolean = false) {
+        liveSessionFile = null
         repaintTimer.stop()
         eagerStartTimer.stop()
         rpc?.stop()
@@ -2126,6 +2221,8 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                 lastLiveModel = modelId
                 lastLiveThinking = level
 
+                sessionFile?.let { liveSessionFile = it }
+
                 // A brand-new session gets its file only once pi creates it.
                 if (session == null && sessionFile != null) {
                     onSessionChanged?.invoke()
@@ -2137,15 +2234,21 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     // --------------------------------------------------------------- events
 
-    private inner class AgentListener : PiRpcClient.Listener {
+    /**
+     * Routes one agent's events into the UI — and only while that agent is the live one.
+     *
+     * A backgrounded agent keeps this listener attached, so without the identity check its
+     * messages would stream into whatever conversation the user had moved on to.
+     */
+    private inner class AgentListener(private val client: PiRpcClient) : PiRpcClient.Listener {
         override fun onEvent(event: JsonObject) {
             val type = event.get("type")?.asStringOrNull() ?: return
-            onEdt { handleEvent(type, event) }
+            onEdt { if (rpc === client) handleEvent(type, event) }
         }
 
         override fun onExit(exitCode: Int, stderr: String) {
             onEdt {
-                if (disposed) return@onEdt
+                if (disposed || rpc !== client) return@onEdt
                 setRunning(false)
                 streaming.end()
                 flushStreaming()
@@ -2720,6 +2823,17 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     @org.jetbrains.annotations.TestOnly
     fun messagesForTest(): List<PiMessage> = messages.toList()
 
+    /** Puts a client in place as the live agent, mid-turn, without spawning anything. */
+    fun attachAgentForTest(client: PiRpcClient, sessionFile: String? = null) {
+        rpc = client
+        liveSessionFile = sessionFile
+        setRunning(true)
+    }
+
+    fun liveAgentForTest(): PiRpcClient? = rpc
+
+    fun detachedAgentsForTest(): List<PiRpcClient> = detached.values.toList()
+
     @org.jetbrains.annotations.TestOnly
     fun setTranscriptForPreview(preview: List<PiMessage>) {
         messages.clear()
@@ -2817,5 +2931,9 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         tickTimer.stop()
         eagerStartTimer.stop()
         stopAgent()
+        // Nothing is left to read a backgrounded reply, so the processes go with the panel.
+        detached.values.forEach { it.stop() }
+        detached.clear()
     }
+
 }
