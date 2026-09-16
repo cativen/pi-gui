@@ -1,5 +1,7 @@
 # Pi GUI — JetBrains plugin for the pi AI coding agent
 
+**English** | [简体中文](README.zh-CN.md)
+
 A JetBrains plugin (Kotlin + JCEF/Swing) that puts the [pi coding agent](https://github.com/earendil-works/pi)
 inside your IDE. Chat and settings use the IDE's bundled JCEF runtime, while project integration,
 file pickers, diffs and confirmations use IntelliJ Platform components. There is no local web
@@ -14,7 +16,7 @@ no code with it.
    ```bash
    ./gradlew buildPlugin
    ```
-   The artifact lands at `build/distributions/pi-gui-1.0.0.zip`.
+   The artifact lands at `build/distributions/pi-gui-1.0.1.zip`.
 
 2. In your IDE: **Settings → Plugins → ⚙ → Install Plugin from Disk…**, pick the zip, restart.
 
