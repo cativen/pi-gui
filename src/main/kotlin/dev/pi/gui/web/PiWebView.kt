@@ -1,0 +1,204 @@
+package dev.pi.gui.web
+
+import com.google.gson.Gson
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.util.Disposer
+import com.intellij.ui.jcef.JBCefApp
+import com.intellij.ui.jcef.JBCefBrowser
+import com.intellij.ui.jcef.JBCefJSQuery
+import org.cef.browser.CefBrowser
+import org.cef.browser.CefFrame
+import org.cef.handler.CefLoadHandlerAdapter
+import java.awt.BorderLayout
+import javax.swing.JComponent
+import javax.swing.JPanel
+
+/**
+ * The page a surface talks to.
+ *
+ * [PiWebView] is the only implementation that ships, but naming the seam lets the surfaces be
+ * exercised without a browser — the events they post are the contract with the JavaScript, and
+ * nothing headless can start Chromium to check it.
+ */
+interface WebPage : Disposable {
+    val component: JComponent
+
+    /** Push one event into the page. Safe to call before the page has loaded. */
+    fun post(event: Map<String, Any?>)
+
+    /** Hand keyboard focus to the page itself, not just to an element inside it. */
+    fun requestBrowserFocus()
+}
+
+/**
+ * Hosts the chat UI in JCEF and carries messages between it and the plugin.
+ *
+ * The page is assembled in Kotlin and handed to the browser as one self-contained document —
+ * stylesheet and script inlined — rather than served over a custom scheme. A plugin's resources
+ * live inside a jar, which Chromium cannot fetch directly, and the alternatives (registering a
+ * scheme handler, or unpacking to a temp directory) add moving parts for no gain when the whole
+ * app is three small files.
+ */
+class PiWebView(
+    /** Page under `/web`, without the extension: for example "chat" or "settings". */
+    private val page: String,
+    private val onMessage: (JsonObject) -> Unit,
+) : JPanel(BorderLayout()), WebPage {
+
+    private val log = Logger.getInstance(PiWebView::class.java)
+    private val gson = Gson()
+
+    private val browser = JBCefBrowser()
+    private val query = JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase)
+
+    /** Events produced before the page finished loading, replayed once it is ready. */
+    private val pending = mutableListOf<String>()
+    @Volatile private var ready = false
+    @Volatile private var disposed = false
+
+    override val component: JComponent get() = this
+
+    init {
+        Disposer.register(this, browser)
+
+        query.addHandler { payload ->
+            if (!disposed) {
+                val message = try {
+                    JsonParser.parseString(payload).takeIf { it.isJsonObject }?.asJsonObject
+                } catch (e: Exception) {
+                    log.warn("Unparseable message from the web view: ${payload.take(200)}", e)
+                    null
+                }
+                if (message != null) deliver(message)
+            }
+            null
+        }
+
+        browser.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
+            override fun onLoadEnd(cefBrowser: CefBrowser?, frame: CefFrame?, httpStatusCode: Int) {
+                if (frame?.isMain != true) return
+                installBridge()
+            }
+        }, browser.cefBrowser)
+
+        add(browser.component, BorderLayout.CENTER)
+        browser.loadHTML(document(page))
+    }
+
+    /**
+     * Hand a message to the plugin on the EDT.
+     *
+     * CEF answers on its own handler thread (`CefHandlers-execution-*`), and everything a message
+     * reaches is Swing: the tool window, the model combos, a file chooser. Calling straight
+     * through threw "Access is allowed from Event Dispatch Thread (EDT) only" on the first
+     * message, and because the throw happened inside the parser's `catch` the only trace was a
+     * warning claiming the JSON was unparseable — Attach and the model list simply did nothing.
+     */
+    internal fun deliver(message: JsonObject) {
+        ApplicationManager.getApplication().invokeLater({
+            if (disposed) return@invokeLater
+            try {
+                onMessage(message)
+            } catch (e: Exception) {
+                // Never silent, and never mistaken for a parse failure again.
+                log.warn("Failed to handle '${message.get("type")}' from the web view", e)
+            }
+        }, { disposed })
+    }
+
+    /**
+     * Exposes `window.__piSend` to the page. `JBCefJSQuery.inject` expands to the call that
+     * reaches [query]'s handler, so the script has no knowledge of how the bridge works.
+     */
+    private fun installBridge() {
+        val js = """
+            window.__piSend = function (payload) { ${query.inject("payload")} };
+            if (window.pi && window.pi.__bridgeReady) window.pi.__bridgeReady();
+        """.trimIndent()
+        browser.cefBrowser.executeJavaScript(js, browser.cefBrowser.url, 0)
+
+        synchronized(pending) {
+            ready = true
+            pending.forEach { dispatch(it) }
+            pending.clear()
+        }
+    }
+
+    override fun post(event: Map<String, Any?>) {
+        val json = gson.toJson(event)
+        synchronized(pending) {
+            if (!ready) {
+                pending.add(json)
+                return
+            }
+        }
+        dispatch(json)
+    }
+
+    /**
+     * Hand keyboard focus to the browser.
+     *
+     * Focusing an element from JavaScript only moves the caret inside the page; if Swing focus is
+     * still on the tool window or the tree, typing never reaches Chromium. Callers that want the
+     * composer really focused need both.
+     */
+    override fun requestBrowserFocus() {
+        if (disposed) return
+        browser.component.requestFocusInWindow()
+    }
+
+    private fun dispatch(json: String) {
+        if (disposed) return
+        // JSON is a subset of JS object syntax, so the payload can be embedded as a literal.
+        browser.cefBrowser.executeJavaScript(
+            "window.pi && window.pi.on($json);",
+            browser.cefBrowser.url,
+            0,
+        )
+    }
+
+    override fun dispose() {
+        disposed = true
+        // `query` and `browser` are both registered with the Disposer; nothing else to unwind.
+    }
+
+    companion object {
+        /**
+         * The page as one self-contained document, stylesheet and script inlined.
+         *
+         * Chromium cannot fetch a plugin's resources out of a jar, so nothing may stay external.
+         * This is pure so a test can check the inlining really happened — a renamed resource would
+         * otherwise leave an unstyled or inert page with no error anywhere.
+         */
+        fun document(page: String): String = resource("/web/$page.html")
+            .replace(
+                """<link rel="stylesheet" href="app.css">""",
+                "<style>\n${resource("/web/app.css")}\n</style>",
+            )
+            .replace(
+                """<script src="$page.js"></script>""",
+                "<script>\n${resource("/web/$page.js")}\n</script>",
+            )
+            // Inlining makes an external-source policy wrong; the document still reaches no
+            // network origin at all, which is what the policy is there to guarantee.
+            .replace(
+                """default-src 'none'; style-src 'unsafe-inline' 'self'; script-src 'self'; img-src data:;""",
+                """default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;""",
+            )
+
+        private fun resource(path: String): String =
+            PiWebView::class.java.getResourceAsStream(path)?.bufferedReader()?.use { it.readText() }
+                ?: error("missing bundled resource $path")
+
+        /** JCEF is absent from some IDE builds and can be switched off by the user. */
+        fun isAvailable(): Boolean = try {
+            JBCefApp.isSupported()
+        } catch (e: Throwable) {
+            false
+        }
+    }
+}

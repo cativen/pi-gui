@@ -15,6 +15,12 @@ data class DiffStat(val added: Int, val removed: Int) {
     val hasChanges: Boolean get() = added > 0 || removed > 0
 }
 
+data class CommitDiff(
+    val text: String,
+    val fileCount: Int,
+    val truncated: Boolean,
+)
+
 /**
  * Thin wrapper over the `git` CLI for showing what a conversation changed.
  *
@@ -67,6 +73,80 @@ object GitDiffService {
         return result.output.trim().takeIf { it.isNotEmpty() }?.let(::File)?.takeIf { it.isDirectory }
     }
 
+    /**
+     * Unified diff for exactly the paths included in the IDE Commit workflow.
+     *
+     * Tracked files are compared with HEAD so staged and unstaged content is represented by the
+     * same snapshot the user sees in the Commit tool window. Untracked files need a separate
+     * `--no-index` invocation because regular `git diff` intentionally omits them.
+     */
+    fun commitDiff(
+        absolutePaths: Collection<String>,
+        projectPath: String? = null,
+        maxChars: Int = MAX_COMMIT_DIFF_CHARS,
+    ): CommitDiff {
+        val paths = absolutePaths.filter { it.isNotBlank() }.distinct()
+        if (paths.isEmpty()) return CommitDiff("", 0, false)
+
+        val projectRoot = repoRootFor(projectPath)
+        val grouped = linkedMapOf<File, MutableList<String>>()
+        paths.forEach { absolutePath ->
+            val file = File(absolutePath)
+            val root = repoRootFor(absolutePath)
+                ?: repoRootFor(file.parentFile?.path)
+                ?: projectRoot
+                ?: return@forEach
+            relativeTo(absolutePath, root)?.let { relative ->
+                grouped.getOrPut(root) { mutableListOf() }.add(relative)
+            }
+        }
+
+        val output = StringBuilder()
+        var truncated = false
+
+        fun append(text: String) {
+            if (text.isBlank() || truncated) return
+            val separator = if (output.isEmpty()) "" else "\n"
+            val available = maxChars - output.length - separator.length
+            if (available <= 0) {
+                truncated = true
+                return
+            }
+            output.append(separator)
+            if (text.length <= available) {
+                output.append(text.trimEnd())
+            } else {
+                output.append(text.take(available).trimEnd())
+                truncated = true
+            }
+        }
+
+        grouped.forEach { (root, relatives) ->
+            val tracked = relatives.filter { relative ->
+                run(listOf("git", "ls-files", "--error-unmatch", "--", relative), root)?.exitCode == 0
+            }
+            tracked.chunked(100).forEach { chunk ->
+                val result = run(
+                    listOf("git", "diff", "--no-color", "--no-ext-diff", "--unified=3", "HEAD", "--") + chunk,
+                    root,
+                )
+                if (result?.exitCode == 0) append(result.output)
+            }
+
+            relatives.filterNot { it in tracked }.forEach { relative ->
+                val result = run(
+                    listOf("git", "diff", "--no-color", "--no-ext-diff", "--no-index", "--", "/dev/null", relative),
+                    root,
+                )
+                // `git diff --no-index` returns 1 when it successfully finds differences.
+                if (result != null && result.exitCode in 0..1) append(result.output)
+            }
+        }
+
+        if (truncated) output.append("\n\n[Diff truncated by Pi GUI]")
+        return CommitDiff(output.toString(), paths.size, truncated)
+    }
+
     private fun relativeTo(absolutePath: String, repoRoot: File): String? {
         val file = try { File(absolutePath).canonicalFile } catch (e: Exception) { File(absolutePath) }
         val root = try { repoRoot.canonicalFile } catch (e: Exception) { repoRoot }
@@ -94,4 +174,6 @@ object GitDiffService {
         LOG.debug("git command failed: ${command.joinToString(" ")}", e)
         null
     }
+
+    private const val MAX_COMMIT_DIFF_CHARS = 120_000
 }

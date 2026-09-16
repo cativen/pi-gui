@@ -50,6 +50,15 @@ class EditsPanel(private val project: Project) : JPanel(BorderLayout()) {
     private var files: List<EditedFile> = emptyList()
     private val stats = HashMap<String, DiffStat?>()
 
+    /**
+     * Notified whenever the file list or its diff stats change.
+     *
+     * A web surface draws its own strip, but collecting edited files and shelling out to git are
+     * the plugin's job either way — so it mirrors what this panel already worked out rather than
+     * repeating the walk. This panel stays the source of truth so [openDiffFor] keeps resolving.
+     */
+    var onFilesChanged: ((List<EditedFile>, Map<String, DiffStat?>) -> Unit)? = null
+
     init {
         isOpaque = true
         background = PiTheme.surfaceBg
@@ -92,6 +101,8 @@ class EditsPanel(private val project: Project) : JPanel(BorderLayout()) {
             rebuildRows()
             loadStats()
         }
+        // Stats arrive later; publish the names now so the strip is not empty in the meantime.
+        onFilesChanged?.invoke(collected, stats)
         revalidate()
         repaint()
     }
@@ -163,6 +174,7 @@ class EditsPanel(private val project: Project) : JPanel(BorderLayout()) {
                 if (files != snapshot) return@invokeLater
                 stats.putAll(computed)
                 applyStatLabels(fileList)
+                onFilesChanged?.invoke(files, stats)
                 repaint()
             }
         }
@@ -182,6 +194,15 @@ class EditsPanel(private val project: Project) : JPanel(BorderLayout()) {
      * Shows HEAD vs the working tree. Falls back to just opening the file when the project is not
      * a git work tree, or when the file is new and has no HEAD side worth diffing.
      */
+    /**
+     * Open the diff for a file by path. The web view reports the display path it was given, so
+     * the lookup goes through the same list the rows were built from.
+     */
+    fun openDiffFor(displayPath: String) {
+        files.firstOrNull { it.displayPath == displayPath || it.absolutePath == displayPath }
+            ?.let { openDiff(it) }
+    }
+
     private fun openDiff(edited: EditedFile) {
         val file = File(edited.absolutePath)
         if (!file.isFile) return

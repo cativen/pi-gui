@@ -40,6 +40,10 @@ import dev.pi.gui.rpc.getAsJsonObjectOrNull
 import dev.pi.gui.session.SessionStore
 import dev.pi.gui.settings.PiSettings
 import dev.pi.gui.ui.components.PiButton
+import dev.pi.gui.ui.transcript.ChatSurface
+import dev.pi.gui.ui.transcript.SwingTranscriptSurface
+import dev.pi.gui.ui.transcript.WebChatSurface
+import dev.pi.gui.web.PiWebView
 import dev.pi.gui.ui.settings.PiSettingsDialog
 import dev.pi.gui.ui.components.StackPanel
 import dev.pi.gui.ui.components.RoundedBorder
@@ -80,12 +84,17 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     private val log = Logger.getInstance(ChatPanel::class.java)
 
-    private val transcript = TranscriptPanel()
-    private val scrollPane = JBScrollPane(
-        transcript,
-        ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
-        ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER,
-    )
+    /**
+     * The conversation area. Chromium when the IDE has JCEF, the original Swing view otherwise —
+     * some distributions ship without it and users can switch it off, and the plugin has to keep
+     * working there.
+     */
+    private val surface: ChatSurface =
+        if (useWebTranscript()) WebChatSurface(project, onCopy = { copyToClipboard(it) })
+        else SwingChatAdapter()
+
+    /** True when the conversation and composer live in the browser. */
+    private val webMode: Boolean get() = surface !is SwingChatAdapter
     /**
      * Overriding `paste()` catches every route that ends at `JTextComponent.paste()` — the
      * right-click Paste menu item and programmatic callers. The keyboard route itself needs the
@@ -121,13 +130,12 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     /** Share of the model's context window the session currently occupies, when pi reports it. */
     private val contextLabel = JBLabel("")
     private var contextPercent: Double? = null
+    private var contextTooltip: String? = null
 
     private val statusLabel = JBLabel(" ")
     private val branchLabel = JBLabel("")
 
-    private val cards = CardLayout()
-    private val center = JPanel(cards)
-    private lateinit var emptyState: JComponent
+    private val center = JPanel(java.awt.BorderLayout())
 
     /** Start of the in-flight assistant step, used for the live timer and the message footer. */
     private var stepStartedAt: Long? = null
@@ -198,6 +206,25 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     private var rpc: PiRpcClient? = null
     private var session: SessionInfo? = null
+
+    /**
+     * The session file the live agent is actually writing to.
+     *
+     * A brand-new chat has no [session] until pi creates the file and reports it on `get_state`,
+     * and that path is what a backgrounded agent is keyed by — so it is remembered here.
+     */
+    private var liveSessionFile: String? = null
+
+    /**
+     * Agents left running after the user moved on, keyed by the session file they are writing.
+     *
+     * Starting or opening another session used to kill the agent mid-turn, throwing away the
+     * reply the user was waiting for. A turn in flight is handed off here instead: pi finishes
+     * it and writes the result to its own session file, and the plugin stops the process once
+     * the turn ends. Keying by file means reopening that session adopts the running agent rather
+     * than starting a second one on top of the same file.
+     */
+    private val detached = LinkedHashMap<String, PiRpcClient>()
     private var isRunning = false
     private var phase: AgentPhase = AgentPhase.Idle
     private var pendingUserText: String? = null
@@ -230,6 +257,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     /** Set by the tool window so `/new` and `/resume` can drive the sidebar too. */
     var onNewSessionRequested: (() -> Unit)? = null
     var onShowSessionsRequested: (() -> Unit)? = null
+    var onShowSettingsRequested: (() -> Unit)? = null
 
     init {
         buildUi()
@@ -246,29 +274,168 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         background = PiTheme.chatBg
         isOpaque = true
 
-        scrollPane.border = JBUI.Borders.empty()
-        scrollPane.viewport.background = PiTheme.chatBg
-        scrollPane.background = PiTheme.chatBg
-        transcript.background = PiTheme.chatBg
-        transcript.isOpaque = true
-
+        wireSurface()
         center.isOpaque = true
         center.background = PiTheme.chatBg
-        emptyState = buildEmptyState()
-        center.add(emptyState, CARD_EMPTY)
-        center.add(scrollPane, CARD_CHAT)
+        center.add(surface.component, java.awt.BorderLayout.CENTER)
 
         add(buildStatusStrip(), BorderLayout.NORTH)
         add(center, BorderLayout.CENTER)
-        add(
-            JPanel(BorderLayout()).apply {
-                isOpaque = false
-                add(editsPanel, BorderLayout.NORTH)
-                add(buildComposer(), BorderLayout.CENTER)
-            },
-            BorderLayout.SOUTH,
+        // In web mode the composer and edits strip are inside the browser, below the transcript.
+        if (!webMode) {
+            add(
+                JPanel(BorderLayout()).apply {
+                    isOpaque = false
+                    add(editsPanel, BorderLayout.NORTH)
+                    add(buildComposer(), BorderLayout.CENTER)
+                },
+                BorderLayout.SOUTH,
+            )
+        }
+    }
+
+    /**
+     * Point the surface's callbacks at the handlers that already exist.
+     *
+     * The Swing composer calls these directly, so in that mode every callback but
+     * `onLoadEarlier` stays null and nothing is duplicated.
+     */
+    private fun wireSurface() {
+        surface.onLoadEarlier = { loadEarlierMessages() }
+        if (!webMode) return
+
+        // The Swing strip is kept off-screen in web mode: it still collects the files and runs
+        // the git stats, and it is what `openDiffFor` resolves against.
+        editsPanel.onFilesChanged = { files, stats ->
+            surface.setEdits(
+                files.map {
+                    val stat = stats[it.absolutePath]
+                    ChatSurface.Edit(it.displayPath, stat?.added ?: 0, stat?.removed ?: 0)
+                }
+            )
+        }
+
+        surface.onSend = { text -> sendComposed(text) }
+        surface.onAbort = { rpc?.abort() }
+        surface.onAttach = { chooseAttachments() }
+        surface.onRemoveAttachment = { id ->
+            attachments.firstOrNull { attachmentId(it) == id }?.let { removeAttachment(it) }
+        }
+        surface.onDropFiles = { paths -> addAttachments(paths.map(::File).filter { it.exists() }) }
+        surface.onPasteClipboard = { pasteAttachmentsFromClipboard() }
+        surface.onCompact = { compactNow() }
+        surface.onSelectProvider = { id ->
+            if (!suppressModelEvents) {
+                selectProvider(id, PiSettings.getInstance().activeModel.takeIf { it.isNotBlank() })
+                    ?.let { applySelectionToAgent(it) }
+            }
+        }
+        // The combos stay the source of truth, so a pick has to land in them before it goes to
+        // the agent — otherwise the pill keeps showing the old value until some later refresh
+        // happens to correct it, and a switch that worked looks like one that did nothing.
+        surface.onSelectModel = { id ->
+            if (!suppressModelEvents) {
+                val showing = (providerCombo.selectedItem as? ProviderOption)?.id
+                val option = allModels.firstOrNull { it.id == id && it.provider == showing }
+                    ?: allModels.firstOrNull { it.id == id }
+                option?.let {
+                    suppressModelEvents = true
+                    modelCombo.selectedItem = it
+                    suppressModelEvents = false
+                    pushModels()
+                    applySelectionToAgent(it)
+                }
+            }
+        }
+        surface.onSelectThinking = { level ->
+            if (!suppressModelEvents) {
+                suppressModelEvents = true
+                thinkingCombo.selectedItem = level
+                suppressModelEvents = false
+                pushModels()
+                PiSettings.getInstance().activeThinking = level
+                rpc?.setThinkingLevel(level)
+            }
+        }
+        surface.onOpenDiff = { path -> editsPanel.openDiffFor(path) }
+        surface.onRequestCommands = {
+            commandRegistry.ensureLoaded(rpc) { pushCommands() }
+            pushCommands()
+        }
+        surface.onNewSession = { onNewSessionRequested?.invoke() ?: startNewSession() }
+        surface.onRefreshSessions = { onRefreshSessionsRequested?.invoke() }
+        surface.onToggleSidebar = { onToggleSidebarRequested?.invoke() }
+        surface.onOpenSettings = { onShowSettingsRequested?.invoke() }
+        surface.onSelectSession = { path -> onSelectSessionRequested?.invoke(path) }
+        surface.onRenameSession = { path -> onRenameSessionRequested?.invoke(path) }
+        surface.onDeleteSession = { path -> onDeleteSessionRequested?.invoke(path) }
+
+        surface.setSendOnEnter(PiSettings.getInstance().sendOnEnter)
+    }
+
+    /**
+     * The sessions the sidebar shows, when the sidebar is part of the page.
+     *
+     * [PiMainPanel] owns the session list either way; in web mode it hands the rows over rather
+     * than drawing them, so the sidebar and the conversation share one stylesheet.
+     */
+    fun setSessions(items: List<ChatSurface.Session>, selectedPath: String?) {
+        if (!webMode) return
+        surface.setSessions(items, selectedPath)
+    }
+
+    fun setSidebarVisible(visible: Boolean) {
+        if (!webMode) return
+        surface.setSidebarVisible(visible)
+    }
+
+    /** True when the shell is drawn by the page, so the native toolbar and sidebar stand down. */
+    fun hostsShell(): Boolean = webMode
+
+    var onRefreshSessionsRequested: (() -> Unit)? = null
+    var onToggleSidebarRequested: (() -> Unit)? = null
+    var onSelectSessionRequested: ((String) -> Unit)? = null
+    var onRenameSessionRequested: ((String) -> Unit)? = null
+    var onDeleteSessionRequested: ((String) -> Unit)? = null
+
+    /** The completion list the browser's `/` popup filters. */
+    private fun pushCommands() {
+        if (disposed || !webMode) return
+        surface.setCommands(
+            commandRegistry.snapshot().map {
+                ChatSurface.Command(it.name, it.description.orEmpty())
+            }
         )
     }
+
+    /**
+     * Mirror the footer combos into the browser.
+     *
+     * The combos stay the source of truth even in web mode: they hold the real [ModelOption]
+     * objects, and every path that changes a selection — restoring a saved one, the agent
+     * reporting what it actually runs, a `thinking_level_changed` event — already goes through
+     * them. The page gets plain ids and labels.
+     */
+    private fun pushModels() {
+        if (disposed || !webMode) return
+        surface.setModels(
+            ChatSurface.ModelChoices(
+                providers = comboItems(providerCombo).map { ChatSurface.Choice(it.id, it.label) },
+                provider = (providerCombo.selectedItem as? ProviderOption)?.id,
+                models = comboItems(modelCombo).map { ChatSurface.Choice(it.id, it.id) },
+                model = (modelCombo.selectedItem as? ModelOption)?.id,
+                thinking = comboItems(thinkingCombo).map { ChatSurface.Choice(it, it) },
+                thinkingLevel = thinkingCombo.selectedItem as? String,
+            )
+        )
+    }
+
+    private fun <T> comboItems(combo: JComboBox<T>): List<T> =
+        combo.model.let { model -> (0 until model.size).map { model.getElementAt(it) } }
+
+    /** Stable identity for an attachment chip, so the view can ask for one to be removed. */
+    private fun attachmentId(attachment: Attachment): String =
+        System.identityHashCode(attachment).toString()
 
     private fun buildStatusStrip(): JComponent {
         val strip = JPanel(BorderLayout()).apply {
@@ -656,21 +823,25 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
             }
         }
         attachments.add(attachment)
-        attachmentStrip.setAttachments(attachments)
-        revalidate()
-        repaint()
+        pushAttachments()
     }
 
     private fun removeAttachment(attachment: Attachment) {
         attachments.remove(attachment)
-        attachmentStrip.setAttachments(attachments)
-        revalidate()
-        repaint()
+        pushAttachments()
     }
 
     private fun clearAttachments() {
         attachments.clear()
-        attachmentStrip.setAttachments(attachments)
+        pushAttachments()
+    }
+
+    private fun pushAttachments() {
+        surface.setAttachments(
+            attachments.map { ChatSurface.Attachment(attachmentId(it), it.displayName) }
+        )
+        revalidate()
+        repaint()
     }
 
     private fun notifyAttachmentProblem(message: String) {
@@ -807,7 +978,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         contextPercent = usage?.get("percent")?.asDoubleOrNull()
         val tokens = usage?.get("tokens")?.asLongOrNull()
         val window = usage?.get("contextWindow")?.asLongOrNull()
-        contextLabel.toolTipText = if (tokens != null && window != null) {
+        contextTooltip = if (tokens != null && window != null) {
             PiBundle.message(
                 "chat.context.tooltip",
                 SessionStore.formatTokens(tokens),
@@ -821,9 +992,10 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     private fun updateContextLabel() {
         val percent = contextPercent
-        contextLabel.text = percent?.let { PiBundle.message("chat.context", formatContextPercent(it)) }.orEmpty()
-        contextLabel.foreground = PiTheme.mutedFg()
-        contextLabel.isVisible = percent != null
+        surface.setContext(
+            percent?.let { PiBundle.message("chat.context", formatContextPercent(it)) },
+            contextTooltip,
+        )
     }
 
 
@@ -1126,14 +1298,14 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
         if (builtin.availability == BuiltinCommands.Availability.CLI_ONLY) {
             appendMessage(PiMessage.Notice(PiBundle.message("command.cliOnly", "/$name")))
-            input.text = ""
+            surface.setComposerText("")
             return true
         }
 
         // Everything below either needs no agent or brings one up on demand.
         when (name) {
             "new" -> onNewSessionRequested?.invoke() ?: startNewSession()
-            "settings" -> PiSettingsDialog(project).show()
+            "settings" -> onShowSettingsRequested?.invoke() ?: PiSettingsDialog(project).show()
             "resume" -> onShowSessionsRequested?.invoke()
             "hotkeys" -> showHotkeys()
             "quit" -> {
@@ -1145,7 +1317,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
             "reload" -> reloadAgent()
             else -> withAgent(name) { client -> runAgentBuiltin(name, args, client) }
         }
-        input.text = ""
+        surface.setComposerText("")
         commandPopup.hide()
         return true
     }
@@ -1337,8 +1509,10 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         // around the list feel laggy. Pick up disk changes via the refresh button instead.
         if (loadedSessionPath == info.filePath) return
         loadedSessionPath = info.filePath
-        // A restart is coming right away for the new session; queued start results survive it.
-        stopAgent(expectRestart = true)
+        if (!detachRunningAgent()) {
+            // A restart is coming right away for the new session; queued start results survive it.
+            stopAgent(expectRestart = true)
+        }
         session = info
         messages.clear()
         // Another session's percentage must not linger while the new one loads.
@@ -1356,6 +1530,19 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                 setStatus(statusSummary())
             }
         }
+        // This session may still have an agent finishing a turn in the background. Adopting it
+        // shows the rest of that turn live, and keeps two processes off one session file.
+        val resumed = detached.remove(info.filePath)
+        if (resumed != null) {
+            rpc = resumed
+            liveSessionFile = info.filePath
+            setRunning(true)
+            phase = AgentPhase.WaitingModel
+            setStatus(statusSummary())
+            refreshModels(resumed)
+            refreshContextUsage()
+            return
+        }
         // Resuming binds a fresh process to this session; having it ready repopulates the
         // footer combos before the first prompt.
         scheduleEagerAgentStart()
@@ -1369,8 +1556,12 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     /** Discard the current conversation and begin a fresh one in this project. */
     fun startNewSession() {
-        // A restart is coming right away; queued start results survive it.
-        stopAgent(expectRestart = true)
+        // A turn already running belongs to the session being left, not to this one: let it
+        // finish in the background rather than throwing away the reply being waited for.
+        if (!detachRunningAgent()) {
+            // A restart is coming right away; queued start results survive it.
+            stopAgent(expectRestart = true)
+        }
         commandPopup.hide()
         // Skills and extensions may have been added since; re-ask rather than serve a stale list.
         commandRegistry.invalidate()
@@ -1388,14 +1579,12 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     }
 
     private fun showEmptyState() {
-        transcript.removeAll()
-        streamingComponent = null
-        cards.show(center, CARD_EMPTY)
+        surface.showEmptyState(project.basePath)
     }
 
     /** Swap the watermark out for the transcript the moment there is anything to show. */
     private fun showTranscript() {
-        cards.show(center, CARD_CHAT)
+        // The surface reveals itself as soon as it has content.
     }
 
     // ------------------------------------------------------------- transcript
@@ -1411,18 +1600,12 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     private fun rebuildTranscript() {
         // Any fill still queued belongs to the transcript being replaced.
         fillGeneration++
-        transcript.removeAll()
-        streamingComponent = null
-
         val hidden = hiddenMessageCount()
-        loadEarlierRow = if (hidden > 0) buildLoadEarlierRow(hidden).also { transcript.add(it) } else null
-        messages.drop(hidden).forEach { transcript.add(MessageRenderer.render(project, it)) }
+        surface.setMessages(messages.drop(hidden), hidden)
 
         if (messages.isEmpty()) showEmptyState() else showTranscript()
-        eagerComponentCount = transcript.componentCount
+        eagerComponentCount = surface.renderedCount()
         editsPanel.update(messages)
-        transcript.revalidate()
-        transcript.repaint()
         scheduleTranscriptFill(fillGeneration)
     }
 
@@ -1468,24 +1651,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
      * screen on every chunk, turning a linear fill into a quadratic one.
      */
     private fun prependMessages(firstIndex: Int, untilIndex: Int) {
-        val pinned = isNearBottom()
-        // Drop the stale "load earlier" row before inserting; a fresh one goes back on top.
-        if (transcript.componentCount > 0 && loadEarlierRow != null) {
-            transcript.remove(loadEarlierRow)
-            loadEarlierRow = null
-        }
-        for (i in untilIndex - 1 downTo firstIndex) {
-            transcript.add(MessageRenderer.render(project, messages[i]), 0)
-        }
-        if (firstIndex > 0) {
-            val row = buildLoadEarlierRow(firstIndex)
-            loadEarlierRow = row
-            transcript.add(row, 0)
-        }
-        transcript.revalidate()
-        transcript.repaint()
-        // Content grew above the viewport; without re-pinning the view would drift upward.
-        if (pinned) scrollToBottom()
+        surface.prependMessages(messages.subList(firstIndex, untilIndex), firstIndex)
     }
 
     /**
@@ -1529,21 +1695,11 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         }
     }
 
-    private fun buildLoadEarlierRow(hidden: Int): JComponent {
-        val row = StackPanel(0).apply { border = JBUI.Borders.empty(4, 0, 10, 0) }
-        val button = PiButton(
-            PiBundle.message("chat.loadEarlier", hidden), null, PiButton.Style.SECONDARY,
-        )
-        button.addActionListener {
-            visibleLimit += VISIBLE_PAGE_SIZE
-            visibleLineBudget += PAGE_LINE_BUDGET
-            rebuildTranscript()
-        }
-        row.add(JPanel(java.awt.FlowLayout(java.awt.FlowLayout.CENTER, 0, 0)).apply {
-            isOpaque = false
-            add(button)
-        })
-        return row
+    /** "Load earlier messages" widens the window by another page. */
+    private fun loadEarlierMessages() {
+        visibleLimit += VISIBLE_PAGE_SIZE
+        visibleLineBudget += PAGE_LINE_BUDGET
+        rebuildTranscript()
     }
 
     private fun appendMessage(message: PiMessage) {
@@ -1552,44 +1708,18 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         visibleLineBudget += renderedLineCost(message).coerceAtLeast(1)
         editsPanel.update(messages)
         showTranscript()
-        // Insert before the live streaming bubble so ordering stays chronological.
-        val streamingIdx = streamingComponent?.let { comp ->
-            transcript.components.indexOfFirst { it === comp }
-        } ?: -1
-        val component = MessageRenderer.render(project, message)
-        if (streamingIdx >= 0) transcript.add(component, streamingIdx) else transcript.add(component)
-        transcript.revalidate()
-        transcript.repaint()
-        maybeScrollToBottom()
+        surface.appendMessage(message)
     }
 
     private fun flushStreaming() {
-        val current = streaming.current
-        if (current == null) {
-            streamingComponent?.let { transcript.remove(it) }
-            streamingComponent = null
-            transcript.revalidate()
-            transcript.repaint()
-            return
-        }
-        val rendered = MessageRenderer.render(project, current)
-        streamingComponent?.let { transcript.remove(it) }
-        showTranscript()
-        transcript.add(rendered)
-        streamingComponent = rendered
-        transcript.revalidate()
-        transcript.repaint()
-        maybeScrollToBottom()
+        surface.setStreaming(streaming.current)
     }
 
     private fun scheduleStreamingRepaint() {
         if (!repaintTimer.isRunning) repaintTimer.restart()
     }
 
-    private fun isNearBottom(): Boolean {
-        val bar = scrollPane.verticalScrollBar
-        return bar.value + bar.visibleAmount >= bar.maximum - JBUI.scale(120)
-    }
+    private fun isNearBottom(): Boolean = surface.isNearBottom()
 
     private fun maybeScrollToBottom() {
         if (isNearBottom()) scrollToBottom()
@@ -1605,28 +1735,22 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
      * frame, purely to land somewhere it could have jumped to in one step. `JViewport` has no
      * such animation, so the destination is identical and the travel disappears.
      */
-    private fun scrollToBottom() {
-        SwingUtilities.invokeLater {
-            val viewport = scrollPane.viewport
-            val view = viewport.view ?: return@invokeLater
-            // The target depends on the transcript's final height, so let pending layout settle.
-            scrollPane.validate()
-            // `preferredSize` is the fallback for the window between rebuilding the transcript and
-            // the layout pass landing: `height` is still the old content's, which would leave the
-            // view short of the newest message.
-            val contentHeight = maxOf(view.height, view.preferredSize.height)
-            val y = (contentHeight - viewport.extentSize.height).coerceAtLeast(0)
-            viewport.viewPosition = Point(0, y)
-        }
-    }
+    private fun scrollToBottom() = surface.scrollToBottom()
 
     // ----------------------------------------------------------------- sending
 
+    /** The Swing composer's send button and Enter binding. */
     private fun send() {
-        val text = input.text.trim()
-        if (text.isEmpty() && attachments.isEmpty()) return
-
         commandPopup.hide()
+        sendComposed(input.text.trim())
+    }
+
+    /**
+     * Send what the composer holds. The text is passed in rather than read back, because in web
+     * mode the view is the one that has it — the plugin does not mirror every keystroke.
+     */
+    private fun sendComposed(text: String) {
+        if (text.isEmpty() && attachments.isEmpty()) return
 
         // pi's built-ins never reach the agent as prompts; the plugin performs them itself.
         if (runBuiltinCommand(text)) return
@@ -1657,7 +1781,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         // pi rejects them as steering ("use prompt instead") — they run immediately instead.
         val midRun = isRunning && streaming.isStreaming && !isExtensionCommand(text)
 
-        input.text = ""
+        surface.setComposerText("")
         appendMessage(PiMessage.User(text, imageCount = images.size))
         clearAttachments()
         pendingUserText = text
@@ -1754,7 +1878,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                 sessionFile = session?.filePath,
                 extraArgs = PiSettings.getInstance().parsedExtraArgs(),
             )
-            client.addListener(AgentListener())
+            client.addListener(AgentListener(client))
             try {
                 client.start()
             } catch (e: Exception) {
@@ -1801,7 +1925,64 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         }
     }
 
+    /**
+     * Hand the live agent off to the background instead of killing it.
+     *
+     * Only worth doing while a turn is in flight — an idle agent has nothing to lose, and leaving
+     * processes about costs memory. Returns true when an agent was backgrounded.
+     */
+    private fun detachRunningAgent(): Boolean {
+        val client = rpc ?: return false
+        if (!isRunning) return false
+        // No file yet means pi has not created one; key it uniquely so it is still stopped later,
+        // it just cannot be adopted back.
+        val key = liveSessionFile ?: session?.filePath ?: "pi.detached.${System.nanoTime()}"
+
+        detached[key]?.takeIf { it !== client }?.stop()
+        detached[key] = client
+        client.addListener(DetachedListener(client))
+
+        // Hand over without stopping the process: stopAgent() would kill the very turn this is
+        // trying to save, so only the panel's own state is wound down here.
+        rpc = null
+        repaintTimer.stop()
+        eagerStartTimer.stop()
+        streaming.end()
+        streamingComponent = null
+        setRunning(false)
+        phase = AgentPhase.Idle
+        providerCombo.isEnabled = false
+        modelCombo.isEnabled = false
+        thinkingCombo.isEnabled = false
+        liveSessionFile = null
+        return true
+    }
+
+    /** Watches a backgrounded agent so its process does not outlive the turn it was kept for. */
+    private inner class DetachedListener(private val client: PiRpcClient) : PiRpcClient.Listener {
+        override fun onEvent(event: JsonObject) {
+            val type = event.get("type")?.asStringOrNull() ?: return
+            if (type != "agent_end") return
+            if (event.get("willRetry")?.asBoolean == true) return
+            onEdt { releaseDetached(client) }
+        }
+
+        override fun onExit(exitCode: Int, stderr: String) {
+            onEdt { detached.values.remove(client) }
+        }
+    }
+
+    /** The turn finished: stop the process, unless the user came back and it is live again. */
+    private fun releaseDetached(client: PiRpcClient) {
+        if (rpc === client) return
+        if (detached.values.remove(client)) {
+            client.stop()
+            onSessionChanged?.invoke()
+        }
+    }
+
     private fun stopAgent(expectRestart: Boolean = false) {
+        liveSessionFile = null
         repaintTimer.stop()
         eagerStartTimer.stop()
         rpc?.stop()
@@ -1859,6 +2040,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         val pick = models.firstOrNull { it.id == preferredModel } ?: models.first()
         modelCombo.selectedItem = pick
         suppressModelEvents = false
+        pushModels()
         return pick
     }
 
@@ -1918,6 +2100,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                     .takeIf { saved -> saved.isNotBlank() && levels.contains(saved) }
                     ?.let { thinkingCombo.selectedItem = it }
                 suppressModelEvents = false
+                pushModels()
             }
         }
     }
@@ -2018,6 +2201,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                 }
                 level?.let { thinkingCombo.selectedItem = it }
                 suppressModelEvents = false
+                pushModels()
 
                 // Once the remembered selection has been restored, the live agent is the source
                 // of truth: whatever it actually runs with becomes the remembered default.
@@ -2037,6 +2221,8 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                 lastLiveModel = modelId
                 lastLiveThinking = level
 
+                sessionFile?.let { liveSessionFile = it }
+
                 // A brand-new session gets its file only once pi creates it.
                 if (session == null && sessionFile != null) {
                     onSessionChanged?.invoke()
@@ -2048,15 +2234,21 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     // --------------------------------------------------------------- events
 
-    private inner class AgentListener : PiRpcClient.Listener {
+    /**
+     * Routes one agent's events into the UI — and only while that agent is the live one.
+     *
+     * A backgrounded agent keeps this listener attached, so without the identity check its
+     * messages would stream into whatever conversation the user had moved on to.
+     */
+    private inner class AgentListener(private val client: PiRpcClient) : PiRpcClient.Listener {
         override fun onEvent(event: JsonObject) {
             val type = event.get("type")?.asStringOrNull() ?: return
-            onEdt { handleEvent(type, event) }
+            onEdt { if (rpc === client) handleEvent(type, event) }
         }
 
         override fun onExit(exitCode: Int, stderr: String) {
             onEdt {
-                if (disposed) return@onEdt
+                if (disposed || rpc !== client) return@onEdt
                 setRunning(false)
                 streaming.end()
                 flushStreaming()
@@ -2207,6 +2399,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
                 suppressModelEvents = true
                 thinkingCombo.selectedItem = level
                 suppressModelEvents = false
+                pushModels()
             }
 
             "session_info_changed" -> onSessionChanged?.invoke()
@@ -2274,13 +2467,9 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     private fun setRunning(running: Boolean) {
         isRunning = running
-        // Compacting mid-turn fights the run that is already using the context.
-        compactButton.isEnabled = !running
-        sendButton.isEnabled = true
-        // Icon-only button: relabelling here used to squeeze icon + text into the old fixed
-        // 28px square and clip both. The tooltip carries the queue/send wording instead.
-        sendButton.toolTipText = PiBundle.message(if (running) "chat.queue" else "chat.send")
-        stopButton.isVisible = running
+        // Compacting mid-turn fights the run that is already using the context; the surface
+        // hides the stop button and disables compact accordingly.
+        surface.setRunning(running)
     }
 
     private fun statusSummary(): String {
@@ -2310,13 +2499,148 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         statusLabel.text = text.ifBlank { " " }
     }
 
+    /**
+     * Presents the existing Swing widgets as a [ChatSurface].
+     *
+     * The fallback path is left exactly as it was rather than extracted into its own class: its
+     * composer carries key bindings, a transfer handler and a completion popup that cannot be
+     * verified without a running IDE, and moving them would risk the one path that has to keep
+     * working where JCEF does not. The adapter only forwards.
+     */
+    private inner class SwingChatAdapter : ChatSurface {
+
+        private val transcript = SwingTranscriptSurface(project)
+
+        override val component: JComponent get() = transcript.component
+
+        override var onLoadEarlier: (() -> Unit)?
+            get() = transcript.onLoadEarlier
+            set(value) { transcript.onLoadEarlier = value }
+
+        // The Swing composer talks to ChatPanel directly, so these stay unused.
+        override var onSend: ((String) -> Unit)? = null
+        override var onAbort: (() -> Unit)? = null
+        override var onAttach: (() -> Unit)? = null
+        override var onRemoveAttachment: ((String) -> Unit)? = null
+        override var onDropFiles: ((List<String>) -> Unit)? = null
+        override var onPasteClipboard: (() -> Unit)? = null
+        override var onCompact: (() -> Unit)? = null
+        override var onSelectProvider: ((String) -> Unit)? = null
+        override var onSelectModel: ((String) -> Unit)? = null
+        override var onSelectThinking: ((String) -> Unit)? = null
+        override var onOpenDiff: ((String) -> Unit)? = null
+        override var onRequestCommands: (() -> Unit)? = null
+        override var onNewSession: (() -> Unit)? = null
+        override var onRefreshSessions: (() -> Unit)? = null
+        override var onToggleSidebar: (() -> Unit)? = null
+        override var onOpenSettings: (() -> Unit)? = null
+        override var onSelectSession: ((String) -> Unit)? = null
+        override var onRenameSession: ((String) -> Unit)? = null
+        override var onDeleteSession: ((String) -> Unit)? = null
+
+        override fun setMessages(messages: List<PiMessage>, hiddenCount: Int) =
+            transcript.setMessages(messages, hiddenCount)
+
+        override fun appendMessage(message: PiMessage) = transcript.appendMessage(message)
+
+        override fun prependMessages(messages: List<PiMessage>, hiddenCount: Int) =
+            transcript.prependMessages(messages, hiddenCount)
+
+        override fun setStreaming(message: PiMessage?) = transcript.setStreaming(message)
+
+        override fun showEmptyState(projectPath: String?) = transcript.showEmptyState(projectPath)
+
+        override fun applySettings() = transcript.applySettings()
+
+        override fun scrollToBottom() = transcript.scrollToBottom()
+
+        override fun isNearBottom(): Boolean = transcript.isNearBottom()
+
+        override fun renderedCount(): Int = transcript.renderedCount()
+
+        override fun composerText(): String = input.text
+
+        override fun setComposerText(text: String, focus: Boolean) {
+            input.text = text
+            if (focus) input.requestFocusInWindow()
+        }
+
+        override fun appendComposerText(text: String) {
+            val existing = input.text
+            val needsSpace = existing.isNotEmpty() && !existing.last().isWhitespace()
+            input.text = buildString {
+                append(existing)
+                if (needsSpace) append(' ')
+                append(text)
+                append(' ')
+            }
+            input.caretPosition = input.text.length
+        }
+
+        override fun focusComposer() { input.requestFocusInWindow() }
+
+        override fun setRunning(running: Boolean) {
+            compactButton.isEnabled = !running
+            sendButton.isEnabled = true
+            sendButton.toolTipText =
+                PiBundle.message(if (running) "chat.queue" else "chat.send")
+            stopButton.isVisible = running
+        }
+
+        override fun setAttachments(items: List<ChatSurface.Attachment>) {
+            attachmentStrip.setAttachments(attachments)
+        }
+
+        override fun setModels(models: ChatSurface.ModelChoices) {
+            // The Swing combos are driven directly by applyModelList, which knows the real
+            // ModelOption/ProviderOption objects rather than these plain ids.
+        }
+
+        override fun setContext(label: String?, tooltip: String?) {
+            contextLabel.text = label.orEmpty()
+            contextLabel.isVisible = label != null
+            contextLabel.toolTipText = tooltip
+            contextLabel.foreground = PiTheme.mutedFg()
+        }
+
+        override fun setCommands(items: List<ChatSurface.Command>) {
+            // The Swing popup reads the registry itself.
+        }
+
+        override fun setEdits(items: List<ChatSurface.Edit>) = editsPanel.update(messages)
+
+        override fun setSendOnEnter(sendOnEnter: Boolean) {
+            // Read from settings at keypress time by the Swing key bindings.
+        }
+
+        override fun setSessions(items: List<ChatSurface.Session>, selectedPath: String?) {
+            // The sidebar and toolbar stay native in this mode; PiMainPanel drives them directly.
+        }
+
+        override fun setSidebarVisible(visible: Boolean) {
+            // As above — the splitter is the sidebar here.
+        }
+
+        override fun dispose() = transcript.dispose()
+    }
+
+    /** Copying from a code block in the web view still goes through the system clipboard. */
+    private fun copyToClipboard(text: String) {
+        try {
+            java.awt.Toolkit.getDefaultToolkit().systemClipboard
+                .setContents(java.awt.datatransfer.StringSelection(text), null)
+        } catch (e: Exception) {
+            log.warn("Could not copy to the clipboard", e)
+        }
+    }
+
     private fun onEdt(block: () -> Unit) {
         val app = ApplicationManager.getApplication()
         if (app.isDispatchThread) block() else app.invokeLater(block)
     }
 
     fun focusInput() {
-        input.requestFocusInWindow()
+        surface.focusComposer()
     }
 
     /**
@@ -2325,10 +2649,9 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
      */
     fun applySettings() {
         background = PiTheme.chatBg
-        scrollPane.viewport.background = PiTheme.chatBg
-        scrollPane.background = PiTheme.chatBg
-        transcript.background = PiTheme.chatBg
         center.background = PiTheme.chatBg
+        surface.applySettings()
+        surface.setSendOnEnter(PiSettings.getInstance().sendOnEnter)
 
         statusLabel.foreground = PiTheme.mutedFg()
         branchLabel.foreground = PiTheme.mutedFg()
@@ -2380,17 +2703,10 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
             }
         }
 
-        rebuildEmptyState()
         if (messages.isEmpty()) showEmptyState() else rebuildTranscript()
         setStatus(statusSummary())
         revalidate()
         repaint()
-    }
-
-    private fun rebuildEmptyState() {
-        center.remove(emptyState)
-        emptyState = buildEmptyState()
-        center.add(emptyState, CARD_EMPTY)
     }
 
     /**
@@ -2399,16 +2715,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
      */
     fun appendToInput(text: String) {
         if (text.isBlank()) return
-        val existing = input.text
-        val needsSpace = existing.isNotEmpty() &&
-            !existing.last().isWhitespace()
-        input.text = buildString {
-            append(existing)
-            if (needsSpace) append(' ')
-            append(text)
-            append(' ')
-        }
-        input.caretPosition = input.text.length
+        surface.appendComposerText(text)
     }
 
     fun currentSession(): SessionInfo? = session
@@ -2431,7 +2738,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     fun loadedSessionPathForTest(): String? = loadedSessionPath
 
     @org.jetbrains.annotations.TestOnly
-    fun transcriptChildCountForTest(): Int = transcript.componentCount
+    fun transcriptChildCountForTest(): Int = surface.renderedCount()
 
     /** What the switch put on screen before yielding the EDT. */
     @org.jetbrains.annotations.TestOnly
@@ -2516,6 +2823,17 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     @org.jetbrains.annotations.TestOnly
     fun messagesForTest(): List<PiMessage> = messages.toList()
 
+    /** Puts a client in place as the live agent, mid-turn, without spawning anything. */
+    fun attachAgentForTest(client: PiRpcClient, sessionFile: String? = null) {
+        rpc = client
+        liveSessionFile = sessionFile
+        setRunning(true)
+    }
+
+    fun liveAgentForTest(): PiRpcClient? = rpc
+
+    fun detachedAgentsForTest(): List<PiRpcClient> = detached.values.toList()
+
     @org.jetbrains.annotations.TestOnly
     fun setTranscriptForPreview(preview: List<PiMessage>) {
         messages.clear()
@@ -2587,6 +2905,19 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
          * stay in front and the mentions become its arguments; anywhere else the leading `@path`
          * would demote the command to ordinary prose.
          */
+        /**
+         * Whether the conversation renders in the browser.
+         *
+         * `-Dpi.gui.forceSwingTranscript=true` pins the Swing view. It exists because JCEF is not
+         * universally available — some distributions omit it, users can switch it off, and a
+         * Chromium fault should not cost someone their chat history — and it is how the Swing
+         * fallback gets exercised in tests.
+         */
+        fun useWebTranscript(): Boolean =
+            PiWebView.isAvailable() && !java.lang.Boolean.getBoolean(FORCE_SWING_PROPERTY)
+
+        const val FORCE_SWING_PROPERTY = "pi.gui.forceSwingTranscript"
+
         fun composeMessage(text: String, mentions: String): String {
             val parts = if (text.startsWith("/")) listOf(text, mentions) else listOf(mentions, text)
             return parts.filter { it.isNotBlank() }.joinToString(" ")
@@ -2600,5 +2931,9 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         tickTimer.stop()
         eagerStartTimer.stop()
         stopAgent()
+        // Nothing is left to read a backgrounded reply, so the processes go with the panel.
+        detached.values.forEach { it.stop() }
+        detached.clear()
     }
+
 }

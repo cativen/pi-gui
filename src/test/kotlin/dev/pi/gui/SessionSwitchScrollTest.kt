@@ -29,6 +29,9 @@ class SessionSwitchScrollTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
+        // Drives the Swing transcript's own scroll pane and viewport, so it has to run against
+        // the Swing surface rather than whichever one the IDE would pick.
+        System.setProperty(ChatPanel.FORCE_SWING_PROPERTY, "true")
         // This suite must never spawn a real agent: switching sessions eagerly boots pi, and a
         // test-spawned process outlives the JVM (leaking a whole pi tree) and locks the temp
         // directory on Windows.
@@ -38,6 +41,7 @@ class SessionSwitchScrollTest : BasePlatformTestCase() {
     }
 
     override fun tearDown() {
+        System.clearProperty(ChatPanel.FORCE_SWING_PROPERTY)
         PiSettings.getInstance().piPath = savedPiPath ?: ""
         com.intellij.openapi.util.io.FileUtil.delete(dir)
         super.tearDown()

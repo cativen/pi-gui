@@ -21,7 +21,16 @@ class SendPathToPiAction : AnAction(), DumbAware {
 
     private data class Target(val label: String, val mentions: String)
 
-    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+    /**
+     * BGT, and it has to be.
+     *
+     * On IntelliJ 2026.1 this entry simply never appeared in the project view's right-click menu —
+     * no error, no log line, just absent — while the identical registration worked on 2024.3. It
+     * was the only third-party action in that menu still updating on the EDT. Nothing here needs
+     * the EDT: [update] reads the data context and nothing else, and the tool window is touched
+     * from [actionPerformed], which the platform always runs on the EDT.
+     */
+    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
     override fun update(e: AnActionEvent) {
         val target = e.project?.let { resolveTarget(e, it) }

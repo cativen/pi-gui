@@ -21,6 +21,17 @@ enum class UiLanguage(val tag: String) {
     }
 }
 
+/** Language requested for AI-generated Git commit messages. */
+enum class CommitLanguage {
+    CHINESE,
+    ENGLISH;
+
+    companion object {
+        fun from(value: String?): CommitLanguage =
+            entries.firstOrNull { it.name == value } ?: CHINESE
+    }
+}
+
 @State(name = "PiGuiSettings", storages = [Storage("pi-gui.xml")])
 class PiSettings : PersistentStateComponent<PiSettings.State> {
 
@@ -44,6 +55,10 @@ class PiSettings : PersistentStateComponent<PiSettings.State> {
         var activeModel: String = "",
         /** Last thinking level chosen in the chat footer. */
         var activeThinking: String = "",
+        /** Language used by Commit AI. */
+        var commitLanguage: String = CommitLanguage.CHINESE.name,
+        /** Extra user requirements appended to the built-in commit-message prompt. */
+        var commitPrompt: String = DEFAULT_COMMIT_PROMPT,
     )
 
     private var state = State()
@@ -100,6 +115,14 @@ class PiSettings : PersistentStateComponent<PiSettings.State> {
         get() = state.activeThinking
         set(value) { state.activeThinking = value }
 
+    var commitLanguage: CommitLanguage
+        get() = CommitLanguage.from(state.commitLanguage)
+        set(value) { state.commitLanguage = value.name }
+
+    var commitPrompt: String
+        get() = state.commitPrompt
+        set(value) { state.commitPrompt = value.take(MAX_COMMIT_PROMPT_LENGTH) }
+
     /** Notified after the settings dialog applies changes, so open panels can re-render. */
     fun addChangeListener(listener: () -> Unit) { listeners.add(listener) }
     fun removeChangeListener(listener: () -> Unit) { listeners.remove(listener) }
@@ -131,6 +154,9 @@ class PiSettings : PersistentStateComponent<PiSettings.State> {
     companion object {
         const val MIN_FONT_SIZE = 10
         const val MAX_FONT_SIZE = 24
+        const val MAX_COMMIT_PROMPT_LENGTH = 2000
+        const val DEFAULT_COMMIT_PROMPT =
+            "请阅读 Git diff，生成简洁、准确的中文提交信息。\n标题不超过 72 个字符，必要时补充正文说明。"
 
         fun getInstance(): PiSettings =
             ApplicationManager.getApplication().getService(PiSettings::class.java)

@@ -1,9 +1,11 @@
 # Pi GUI — JetBrains plugin for the pi AI coding agent
 
-A **native** JetBrains plugin (Kotlin + Swing) that puts the [pi coding agent](https://github.com/earendil-works/pi)
-inside your IDE. No embedded browser, no local web server — the UI is built entirely from
-IntelliJ Platform components, and code blocks are rendered by the IDE's own editor so they get
-real syntax highlighting.
+**English** | [简体中文](README.zh-CN.md)
+
+A JetBrains plugin (Kotlin + JCEF/Swing) that puts the [pi coding agent](https://github.com/earendil-works/pi)
+inside your IDE. Chat and settings use the IDE's bundled JCEF runtime, while project integration,
+file pickers, diffs and confirmations use IntelliJ Platform components. There is no local web
+server and no remote UI origin.
 
 Feature design is inspired by [pi-web](https://github.com/agegr/pi-web); the implementation shares
 no code with it.
@@ -14,7 +16,7 @@ no code with it.
    ```bash
    ./gradlew buildPlugin
    ```
-   The artifact lands at `build/distributions/pi-gui-1.0.0.zip`.
+   The artifact lands at `build/distributions/pi-gui-1.0.1.zip`.
 
 2. In your IDE: **Settings → Plugins → ⚙ → Install Plugin from Disk…**, pick the zip, restart.
 
@@ -107,20 +109,19 @@ src/main/kotlin/dev/pi/gui/
   rpc/StreamingAssistant.kt accumulates streaming deltas into a message
   rpc/PiJson.kt             pi JSON → model types (both tool-call spellings)
   session/SessionStore.kt   reads ~/.pi/agent/sessions/*.jsonl, walks the active branch
-  ui/ChatPanel.kt           transcript, composer, status strip, event handling
-  ui/CommandPopup.kt        the `/` completion list
+  ui/ChatPanel.kt           chat/session orchestration and native status strip
   ui/SessionListPanel.kt    session sidebar
-  ui/MessageRenderer.kt     message → native component tree
-  ui/MarkdownView.kt        prose + code segment rendering
-  ui/markdown/Markdown.kt   Markdown subset → Swing HTML
-  ui/components/            HtmlBlock, CodeBlock, CollapsibleSection, layout
-  settings/                 persisted settings + settings UI
+  ui/transcript/            JCEF chat surface plus Swing fallback
+  ui/settings/              JCEF settings controller plus Swing fallback
+  web/                      JCEF bridge, theme tokens and HTML renderer
+  settings/                 persisted settings and IDE configurable
+src/main/resources/web/     self-contained chat/settings HTML, CSS and JavaScript
 ```
 
 ## Development
 
 ```bash
-./gradlew test          # 284 unit + headless UI tests
+./gradlew test          # unit + headless UI and JCEF bridge contract tests
 ./gradlew runIde        # sandbox IDE with the plugin loaded
 ./gradlew verifyPlugin  # JetBrains plugin verifier
 ./gradlew buildPlugin   # distributable zip

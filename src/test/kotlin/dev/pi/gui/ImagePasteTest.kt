@@ -17,6 +17,21 @@ import java.io.File
  */
 class ImagePasteTest : BasePlatformTestCase() {
 
+    override fun setUp() {
+        super.setUp()
+        // The composer's TransferHandler is a Swing construct; the browser route is a paste
+        // event over the bridge and needs a running IDE.
+        System.setProperty(ChatPanel.FORCE_SWING_PROPERTY, "true")
+    }
+
+    override fun tearDown() {
+        try {
+            System.clearProperty(ChatPanel.FORCE_SWING_PROPERTY)
+        } finally {
+            super.tearDown()
+        }
+    }
+
     private class ImageTransferable(private val image: java.awt.Image) : Transferable {
         override fun getTransferDataFlavors() = arrayOf(DataFlavor.imageFlavor)
         override fun isDataFlavorSupported(f: DataFlavor?) = f == DataFlavor.imageFlavor

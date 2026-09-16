@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;">
+  <title>Pi chat</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body class="chat">
+<div id="chat-root">
+  <div id="sidebar">
+    <div id="toolbar">
+      <button id="new-session" class="tool-btn" type="button"></button>
+      <button id="refresh-sessions" class="tool-btn" type="button"></button>
+      <span class="tool-divider"></span>
+      <button id="toggle-sidebar" class="tool-btn" type="button"></button>
+      <button id="open-settings" class="tool-btn" type="button"></button>
+    </div>
+    <div id="sessions" class="sessions"></div>
+  </div>
+
+  <div id="main">
+  <div id="scroller" class="transcript">
+    <div id="empty" class="empty">
+      <div class="glyph">&pi;</div>
+      <div class="empty-title"></div>
+      <div class="empty-subtitle"></div>
+    </div>
+    <div id="earlier"></div>
+    <div id="messages"></div>
+    <div id="streaming"></div>
+    <div id="activity" class="activity" role="status" aria-live="polite" hidden>
+      <span class="assistant-mark" aria-hidden="true">π</span>
+      <span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="sr-only"></span>
+    </div>
+  </div>
+
+  <div id="edits" class="edits" hidden></div>
+
+  <div id="composer">
+    <div id="command-popup" class="command-popup" hidden></div>
+
+    <div id="composer-card">
+      <div id="attachments" class="attachments" hidden></div>
+      <textarea id="input" rows="1" spellcheck="false"></textarea>
+      <div id="controls">
+        <button id="attach" class="pill" type="button"></button>
+        <span class="control-divider"></span>
+        <button id="provider" class="pill menu" type="button"></button>
+        <button id="model" class="pill menu" type="button"></button>
+        <button id="thinking" class="pill menu" type="button"></button>
+        <button id="compact" class="pill menu" type="button"></button>
+        <span class="spacer"></span>
+        <button id="stop" class="pill danger" type="button" hidden></button>
+        <button id="send" class="pill primary" type="button"></button>
+      </div>
+    </div>
+
+    <div id="menu" class="menu-popup" role="menu" hidden></div>
+  </div>
+  </div>
+
+  <div id="session-menu" class="menu-popup" role="menu" hidden></div>
+</div>
+<script src="chat.js"></script>
+</body>
+</html>

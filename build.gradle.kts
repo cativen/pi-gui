@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "dev.pi"
-version = "1.0.0"
+version = "1.0.1"
 
 repositories {
     mavenCentral()
@@ -49,12 +49,12 @@ intellijPlatform {
         name = "Pi GUI"
         version = project.version.toString()
         description = """
-            <p>A native JetBrains UI for the <b>pi</b> AI coding agent. Not affiliated with
+            <p>A JetBrains UI for the <b>pi</b> AI coding agent. Not affiliated with
             JetBrains or with the authors of pi.</p>
 
-            <p>Chat with pi inside the IDE. The interface is built entirely from IntelliJ
-            components &mdash; there is no embedded browser and no local web server &mdash; and
-            fenced code is rendered by the IDE's own lexers, so it gets real syntax highlighting.</p>
+            <p>Chat with pi inside the IDE. Conversation and settings surfaces use the IDE's
+            bundled JCEF runtime, with no local web server or remote UI origin. Native IDE APIs
+            still provide file pickers, diffs, confirmations and project integration.</p>
 
             <h4>What it does</h4>
             <ul>
@@ -84,22 +84,14 @@ intellijPlatform {
             <p><code>npm i -g @earendil-works/pi-coding-agent</code></p>
         """.trimIndent()
         changeNotes = """
-            <h4>1.0.0</h4>
-            <p>First public release.</p>
+            <h4>1.0.1</h4>
+            <p>Improves the JCEF experience and adds IDE-integrated AI workflows.</p>
             <ul>
-              <li>Native chat tool window for the pi coding agent &mdash; no embedded browser.</li>
-              <li>Browse, resume and delete the sessions recorded for the current project.</li>
-              <li>Streaming responses with collapsible thinking blocks, tool calls and results.</li>
-              <li>Markdown rendering with IDE syntax highlighting for fenced code.</li>
-              <li><code>/</code> command completion: pi's built-ins, extension commands, prompt
-                  templates and skills.</li>
-              <li>Edits panel listing the files a conversation changed, opening the IDE diff viewer.</li>
-              <li>Attachments by drag, paste or file picker, including inline images.</li>
-              <li>Context-usage meter with on-demand compaction.</li>
-              <li>Provider, model and thinking-level switching; steering while a run is in flight.</li>
-              <li>Skills and packages management from the settings dialog.</li>
-              <li>"Send File Path to Pi GUI" from the project view, editor, tabs and navigation bar.</li>
-              <li>English, Simplified Chinese and Traditional Chinese.</li>
+              <li>Add MCP server management for global and project configurations.</li>
+              <li>Add AI-generated Git commit messages from the selected diff.</li>
+              <li>Add copy controls to user messages.</li>
+              <li>Keep settings inside Pi GUI with working native actions.</li>
+              <li>Improve responsive conversation layout and eliminate streaming flicker.</li>
             </ul>
         """.trimIndent()
         ideaVersion {
