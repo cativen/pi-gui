@@ -7,6 +7,7 @@ import dev.pi.gui.providers.ProvidersRegistry
 import dev.pi.gui.settings.PiSettings
 import dev.pi.gui.settings.ThemeMode
 import dev.pi.gui.settings.UiLanguage
+import dev.pi.gui.settings.CommitLanguage
 import dev.pi.gui.ui.settings.WebSettingsSurface
 import dev.pi.gui.web.PiWebView
 import dev.pi.gui.web.WebPage
@@ -52,6 +53,18 @@ class WebSettingsTest : BasePlatformTestCase() {
         assertTrue(document.contains("id=\"settings-root\""))
         assertTrue(document.contains("window.__piSend"))
         assertTrue(document.contains("default-src 'none'"))
+        assertTrue(document.contains("data-page=\"commit-ai\""))
+        assertTrue(document.contains("id=\"commit-prompt\""))
+    }
+
+    fun testCommitAiNavigationSitsBetweenPluginsAndCli() {
+        val js = settingsJs()
+        val plugins = js.indexOf("['plugins', 'plugin', 'settings.tab.plugins']")
+        val commitAi = js.indexOf("['commit-ai', 'commit', 'settings.tab.commitAi']")
+        val cli = js.indexOf("['cli', 'terminal', 'settings.tab.cli']")
+        assertTrue("plugins tab missing", plugins >= 0)
+        assertTrue("Commit AI must follow Plugins", commitAi > plugins)
+        assertTrue("Commit AI must precede pi CLI", cli > commitAi)
     }
 
     fun testEveryMessageSentBySettingsJsHasABridgeHandler() {
@@ -85,10 +98,14 @@ class WebSettingsTest : BasePlatformTestCase() {
             settings.themeMode = ThemeMode.SYSTEM
             settings.language = UiLanguage.SIMPLIFIED_CHINESE
             settings.extraArgs = ""
+            settings.commitLanguage = CommitLanguage.CHINESE
+            settings.commitPrompt = PiSettings.DEFAULT_COMMIT_PROMPT
 
             bridge(JsonParser.parseString("""{"type":"updateDraft","field":"theme","value":"DARK"}""").asJsonObject)
             bridge(JsonParser.parseString("""{"type":"updateDraft","field":"language","value":"en"}""").asJsonObject)
             bridge(JsonParser.parseString("""{"type":"updateDraft","field":"extraArgs","value":"--models test/*"}""").asJsonObject)
+            bridge(JsonParser.parseString("""{"type":"updateDraft","field":"commitLanguage","value":"ENGLISH"}""").asJsonObject)
+            bridge(JsonParser.parseString("""{"type":"updateDraft","field":"commitPrompt","value":"Use a short subject"}""").asJsonObject)
 
             assertEquals(ThemeMode.SYSTEM, settings.themeMode)
             assertTrue(surface.isModified())
@@ -96,6 +113,8 @@ class WebSettingsTest : BasePlatformTestCase() {
             assertEquals(ThemeMode.DARK, settings.themeMode)
             assertEquals(UiLanguage.ENGLISH, settings.language)
             assertEquals("--models test/*", settings.extraArgs)
+            assertEquals(CommitLanguage.ENGLISH, settings.commitLanguage)
+            assertEquals("Use a short subject", settings.commitPrompt)
             assertFalse(surface.isModified())
         } finally {
             surface.dispose()

@@ -18,6 +18,7 @@ import dev.pi.gui.providers.ProvidersRegistry
 import dev.pi.gui.rpc.PiJson
 import dev.pi.gui.rpc.asStringOrNull
 import dev.pi.gui.settings.PiSettings
+import dev.pi.gui.settings.CommitLanguage
 import dev.pi.gui.settings.ThemeMode
 import dev.pi.gui.settings.UiLanguage
 import dev.pi.gui.skills.SearchTimeoutException
@@ -94,6 +95,8 @@ class WebSettingsSurface(
         settings.chatFontSize = draft.fontSize
         settings.piPath = draft.piPath.trim()
         settings.extraArgs = draft.extraArgs.trim()
+        settings.commitLanguage = draft.commitLanguage
+        settings.commitPrompt = draft.commitPrompt.trim()
         settings.fireChanged()
     }
 
@@ -114,6 +117,11 @@ class WebSettingsSurface(
                 draft = Draft.defaults()
                 pushState()
                 if (embedded) applyEmbeddedChange("all")
+            }
+            "resetCommitPrompt" -> {
+                draft = draft.copy(commitPrompt = PiSettings.DEFAULT_COMMIT_PROMPT)
+                pushState()
+                if (embedded) applyEmbeddedChange("commitPrompt")
             }
             "choosePi" -> choosePiExecutable()
             "importProvidersAuto" -> importProviders { CcSwitchImporter.importAuto() }
@@ -143,6 +151,10 @@ class WebSettingsSurface(
             "fontSize" -> draft.copy(fontSize = (value?.asInt ?: draft.fontSize).coerceIn(PiSettings.MIN_FONT_SIZE, PiSettings.MAX_FONT_SIZE))
             "piPath" -> draft.copy(piPath = value?.asString.orEmpty())
             "extraArgs" -> draft.copy(extraArgs = value?.asString.orEmpty())
+            "commitLanguage" -> draft.copy(commitLanguage = CommitLanguage.from(value?.asString))
+            "commitPrompt" -> draft.copy(
+                commitPrompt = value?.asString.orEmpty().take(PiSettings.MAX_COMMIT_PROMPT_LENGTH),
+            )
             else -> draft
         }
     }
@@ -440,6 +452,9 @@ class WebSettingsSurface(
                 "fontSize" to draft.fontSize,
                 "piPath" to draft.piPath,
                 "extraArgs" to draft.extraArgs,
+                "commitLanguage" to draft.commitLanguage.name,
+                "commitPrompt" to draft.commitPrompt,
+                "commitPromptMax" to PiSettings.MAX_COMMIT_PROMPT_LENGTH,
                 "fontMin" to PiSettings.MIN_FONT_SIZE,
                 "fontMax" to PiSettings.MAX_FONT_SIZE,
                 "detected" to detectedPi,
@@ -496,6 +511,8 @@ class WebSettingsSurface(
         val fontSize: Int,
         val piPath: String,
         val extraArgs: String,
+        val commitLanguage: CommitLanguage,
+        val commitPrompt: String,
     ) {
         companion object {
             fun read(): Draft {
@@ -504,7 +521,7 @@ class WebSettingsSurface(
                     s.themeMode, s.language, s.showThinking, s.expandThinking,
                     s.autoExpandToolCalls, s.sendOnEnter,
                     if (s.chatFontSize > 0) s.chatFontSize else PiTheme.defaultFontSize(),
-                    s.piPath, s.extraArgs,
+                    s.piPath, s.extraArgs, s.commitLanguage, s.commitPrompt,
                 )
             }
 
@@ -512,13 +529,15 @@ class WebSettingsSurface(
                 ThemeMode.SYSTEM, UiLanguage.SIMPLIFIED_CHINESE,
                 showThinking = true, expandThinking = false, expandToolCalls = false,
                 sendOnEnter = true, fontSize = PiTheme.defaultFontSize(), piPath = "", extraArgs = "",
+                commitLanguage = CommitLanguage.CHINESE,
+                commitPrompt = PiSettings.DEFAULT_COMMIT_PROMPT,
             )
         }
     }
 
     companion object {
         internal val HANDLED_MESSAGES = setOf(
-            "ready", "closeSettings", "updateDraft", "resetDraft", "choosePi", "importProvidersAuto",
+            "ready", "closeSettings", "updateDraft", "resetDraft", "resetCommitPrompt", "choosePi", "importProvidersAuto",
             "importProvidersDb", "enableProvider", "saveProvider", "deleteProvider", "toggleSkill",
             "searchSkills", "installSkill", "searchPackages", "installPackage", "removePackage",
             "refreshPackages", "openPackages",
@@ -526,7 +545,7 @@ class WebSettingsSurface(
 
         private val SETTINGS_KEYS = listOf(
             "settings.title", "settings.tab.general", "settings.tab.providers", "settings.tab.skills",
-            "settings.tab.plugins", "settings.tab.cli", "settings.appearance", "settings.appearance.system",
+            "settings.tab.plugins", "settings.tab.commitAi", "settings.tab.cli", "settings.appearance", "settings.appearance.system",
             "settings.general.description", "settings.appearance.description", "settings.appearance.light",
             "settings.appearance.dark", "settings.conversation", "settings.conversation.description",
             "settings.showThinking", "settings.expandThinking", "settings.expandToolCalls",
@@ -538,6 +557,10 @@ class WebSettingsSurface(
             "settings.saved", "settings.autoSaved", "settings.backToChat", "settings.installed",
             "settings.providers.description", "settings.skills.description",
             "settings.plugins.description", "providers.claudeSection", "providers.codexSection",
+            "settings.commitAi.description", "settings.commitAi.generation", "settings.commitAi.model",
+            "settings.commitAi.followChatModel", "settings.commitAi.language", "settings.commitAi.language.zh",
+            "settings.commitAi.language.en", "settings.commitAi.prompt", "settings.commitAi.promptHint",
+            "settings.commitAi.restoreDefault", "settings.commitAi.privacy",
             "providers.import.auto", "providers.import.db", "providers.empty.hint", "providers.enable",
             "providers.edit", "providers.delete", "providers.current", "providers.dialog.title",
             "providers.name", "providers.baseUrl", "providers.apiKey", "providers.models",

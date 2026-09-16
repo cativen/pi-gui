@@ -51,7 +51,7 @@ html, body {
 
 button, textarea { -webkit-font-smoothing: antialiased; }
 button { touch-action: manipulation; }
-button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible, .edit-path:focus-visible {
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible, .edit-path:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -299,7 +299,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
 .field small, .field-hint { color: var(--muted-fg); font-size: 0.86em; font-weight: 400; }
 .field-hint { margin: -4px 0 14px; overflow-wrap: anywhere; }
 .field-hint.error { color: var(--error-fg); }
-.field input, .field textarea {
+.field input, .field select, .field textarea {
   width: 100%;
   min-height: 36px;
   padding: 8px 10px;
@@ -310,8 +310,18 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
   color: var(--text-fg);
   font: var(--font);
 }
+.field select { appearance: none; padding-right: 34px; background-image: linear-gradient(45deg, transparent 50%, var(--muted-fg) 50%), linear-gradient(135deg, var(--muted-fg) 50%, transparent 50%); background-position: calc(100% - 16px) 15px, calc(100% - 11px) 15px; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+.field select:disabled { color: var(--text-fg); opacity: 0.82; cursor: default; }
 .field textarea { resize: vertical; font: var(--mono); }
-.field input:focus, .field textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-tint); }
+.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-tint); }
+.compact-card { padding-bottom: 18px; }
+.commit-setting-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.commit-prompt-card { padding-bottom: 14px; }
+.commit-prompt-field textarea { min-height: 132px; line-height: 1.65; }
+.commit-prompt-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 10px; }
+.commit-prompt-footer output { color: var(--muted-fg); font: var(--mono); }
+.settings-info { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 12px 16px; border: 1px solid var(--assistant-border); border-radius: 12px; background: var(--assistant-bg); color: var(--muted-fg); }
+.settings-info svg { flex: 0 0 auto; color: var(--accent); }
 .input-action { display: flex; gap: 8px; min-width: 0; }
 .input-action input { min-width: 0; flex: 1 1 auto; }
 .scope-options { display: flex; gap: 18px; color: var(--muted-fg); }
@@ -353,6 +363,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
   .page-heading-actions { flex-direction: column; }
   .header-actions { justify-content: flex-start; }
   .choice-grid.three { grid-template-columns: 1fr; }
+  .commit-setting-grid { grid-template-columns: 1fr; }
   .resource-card { align-items: flex-start; flex-wrap: wrap; }
   .resource-actions { width: 100%; padding-left: 52px; }
   .range-row { align-items: flex-start; flex-direction: column; }

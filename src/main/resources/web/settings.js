@@ -22,6 +22,7 @@
     provider: '<rect x="3" y="4" width="12" height="10" rx="2"/><path d="M6 8h6M6 11h4"/>',
     skill: '<path d="m9 2 1.35 4.15L14.5 7.5l-4.15 1.35L9 13l-1.35-4.15L3.5 7.5l4.15-1.35L9 2Z"/><path d="m14 11 .55 1.45L16 13l-1.45.55L14 15l-.55-1.45L12 13l1.45-.55L14 11Z"/>',
     plugin: '<path d="M6.5 3H4a1 1 0 0 0-1 1v2.5a2 2 0 1 1 0 4V14a1 1 0 0 0 1 1h3.5a2 2 0 1 1 4 0H14a1 1 0 0 0 1-1v-3.5a2 2 0 1 1 0-4V4a1 1 0 0 0-1-1h-3.5a2 2 0 1 1-4 0Z"/>',
+    commit: '<rect x="3" y="3" width="12" height="12" rx="3"/><path d="M6.2 10.8V7.2M9 10.8V7.2M11.8 10.8V7.2"/>',
     terminal: '<path d="m3.5 5 3.5 3.5L3.5 12M9 12.5h5.5"/>'
   };
 
@@ -38,7 +39,8 @@
       'providers-list', 'providers-status', 'add-skill', 'skills-list', 'skills-status',
       'refresh-packages', 'open-packages', 'package-source', 'install-package', 'package-scopes',
       'package-query', 'search-packages', 'package-results', 'plugins-status', 'packages-summary',
-      'packages-list', 'pi-path', 'choose-pi', 'pi-detected', 'extra-args', 'modal', 'modal-title',
+      'packages-list', 'commit-language', 'commit-prompt', 'commit-prompt-count', 'reset-commit-prompt',
+      'pi-path', 'choose-pi', 'pi-detected', 'extra-args', 'modal', 'modal-title',
       'modal-body', 'modal-close'].forEach(function (id) { els[id] = document.getElementById(id); });
 
     els['reset-settings'].addEventListener('click', function () { send({ type: 'resetDraft' }); });
@@ -50,6 +52,10 @@
     // Save text fields once editing is complete; sending every keystroke across JCEF is wasteful.
     els['pi-path'].addEventListener('change', function () { updateDraft('piPath', this.value); });
     els['extra-args'].addEventListener('change', function () { updateDraft('extraArgs', this.value); });
+    els['commit-language'].addEventListener('change', function () { updateDraft('commitLanguage', this.value); });
+    els['commit-prompt'].addEventListener('input', paintCommitPromptCount);
+    els['commit-prompt'].addEventListener('change', function () { updateDraft('commitPrompt', this.value); });
+    els['reset-commit-prompt'].addEventListener('click', function () { send({ type: 'resetCommitPrompt' }); });
     els['choose-pi'].addEventListener('click', function () { send({ type: 'choosePi' }); });
     els['import-provider'].addEventListener('click', function () { send({ type: 'importProvidersAuto' }); });
     els['import-provider-db'].addEventListener('click', function () { send({ type: 'importProvidersDb' }); });
@@ -131,6 +137,7 @@
     var tabs = [
       ['general', 'general', 'settings.tab.general'], ['providers', 'provider', 'settings.tab.providers'],
       ['skills', 'skill', 'settings.tab.skills'], ['plugins', 'plugin', 'settings.tab.plugins'],
+      ['commit-ai', 'commit', 'settings.tab.commitAi'],
       ['cli', 'terminal', 'settings.tab.cli']
     ];
     els['settings-nav'].innerHTML = tabs.map(function (tab, index) {
@@ -147,6 +154,7 @@
     els['install-package'].textContent = t('plugins.install');
     els['search-packages'].textContent = t('plugins.search.action');
     els['package-query'].placeholder = t('plugins.search.placeholder');
+    paintCommitPromptCount();
   }
 
   function showPage(page) {
@@ -173,9 +181,18 @@
     els['font-size'].min = value.fontMin; els['font-size'].max = value.fontMax; els['font-size'].value = value.fontSize;
     els['font-size-value'].textContent = value.fontSize + 'px';
     els['pi-path'].value = value.piPath || ''; els['extra-args'].value = value.extraArgs || '';
+    els['commit-language'].value = value.commitLanguage || 'CHINESE';
+    els['commit-prompt'].maxLength = value.commitPromptMax || 2000;
+    els['commit-prompt'].value = value.commitPrompt || '';
+    paintCommitPromptCount();
     els['pi-detected'].textContent = value.detecting ? t('settings.detecting') :
       (value.detected ? t('settings.detected') + ': ' + value.detected : t('settings.cli.notFound'));
     els['pi-detected'].classList.toggle('error', !value.detecting && !value.detected);
+  }
+
+  function paintCommitPromptCount() {
+    if (!els['commit-prompt-count'] || !els['commit-prompt']) return;
+    els['commit-prompt-count'].textContent = els['commit-prompt'].value.length + ' / ' + (els['commit-prompt'].maxLength || 2000);
   }
 
   function choices(field, selected, items) {
