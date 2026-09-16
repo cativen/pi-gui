@@ -52,6 +52,21 @@
       <div id="skills-list" class="resource-grid"></div>
     </section>
 
+    <section class="settings-page" data-page="mcp">
+      <header class="page-heading page-heading-actions">
+        <div><h1 data-label="settings.tab.mcp"></h1><p data-label="settings.mcp.description"></p></div>
+        <div class="header-actions mcp-toolbar">
+          <label class="mcp-search"><span class="sr-only" data-label="mcp.search.placeholder"></span><input id="mcp-query" type="search" data-placeholder="mcp.search.placeholder"></label>
+          <button id="refresh-mcp" class="button icon-button" data-busy-area="mcp" type="button"></button>
+          <button id="add-mcp" class="button primary" data-busy-area="mcp" type="button"></button>
+        </div>
+      </header>
+      <div id="mcp-status" class="inline-status" role="status"></div>
+      <div class="section-title"><h2 data-label="settings.tab.mcp"></h2><span id="mcp-summary"></span></div>
+      <div id="mcp-list" class="mcp-list"></div>
+      <div class="settings-info mcp-note" role="note"><svg viewBox="0 0 18 18" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true"><path d="M9 2.5 14 4.4v3.8c0 3.15-2.05 5.7-5 7.3-2.95-1.6-5-4.15-5-7.3V4.4L9 2.5Z"/><path d="m6.8 8.9 1.45 1.45 3-3.15"/></svg><span data-label="mcp.note"></span></div>
+    </section>
+
     <section class="settings-page" data-page="plugins">
       <header class="page-heading page-heading-actions"><div><h1 data-label="settings.tab.plugins"></h1><p data-label="settings.plugins.description"></p></div><button id="refresh-packages" class="button icon-button" type="button"></button></header>
       <div class="settings-card install-card">

@@ -1,6 +1,7 @@
 package dev.pi.gui.ui.settings
 
 import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
@@ -10,6 +11,9 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Disposer
 import dev.pi.gui.PiLocator
 import dev.pi.gui.i18n.PiBundle
+import dev.pi.gui.mcp.McpConfigService
+import dev.pi.gui.mcp.McpScope
+import dev.pi.gui.mcp.McpServerInput
 import dev.pi.gui.packages.PackageScope
 import dev.pi.gui.packages.PackagesRegistry
 import dev.pi.gui.packages.PackagesService
@@ -31,6 +35,7 @@ import dev.pi.gui.web.WebPage
 import dev.pi.gui.web.WebTheme
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
+import java.io.File
 
 /**
  * JCEF settings application shared by the toolbar dialog and IDE Settings configurable.
@@ -42,6 +47,7 @@ import javax.swing.filechooser.FileNameExtensionFilter
 class WebSettingsSurface(
     private val project: Project?,
     private val registry: ProvidersRegistry = ProvidersRegistry.default(),
+    private val mcpService: McpConfigService = McpConfigService(projectDir = project?.basePath?.let(::File)),
     private val embedded: Boolean = false,
     private val onClose: () -> Unit = {},
     page: ((JsonObject) -> Unit) -> WebPage = { PiWebView("settings", it) },
@@ -62,6 +68,7 @@ class WebSettingsSurface(
         detectPi()
         reloadProviders()
         reloadSkills()
+        reloadMcp()
         reloadPackages()
     }
 
@@ -81,6 +88,7 @@ class WebSettingsSurface(
         pushState()
         reloadProviders()
         reloadSkills()
+        reloadMcp()
         reloadPackages()
     }
 
@@ -105,7 +113,7 @@ class WebSettingsSurface(
         val text = { key: String -> message[key]?.asStringOrNull().orEmpty() }
         when (type) {
             "ready" -> {
-                pushTheme(); pushStrings(); pushState(); reloadProviders(); reloadSkills(); reloadPackages()
+                pushTheme(); pushStrings(); pushState(); reloadProviders(); reloadSkills(); reloadMcp(); reloadPackages()
             }
             "closeSettings" -> onClose()
             "updateDraft" -> {
@@ -132,6 +140,10 @@ class WebSettingsSurface(
             "toggleSkill" -> toggleSkill(text("path"), message["enabled"]?.asBoolean == true)
             "searchSkills" -> searchSkills(text("query"))
             "installSkill" -> installSkill(text("id"), text("scope"))
+            "refreshMcp" -> reloadMcp()
+            "saveMcp" -> saveMcp(message)
+            "toggleMcp" -> toggleMcp(text("id"), message["enabled"]?.asBoolean == true)
+            "deleteMcp" -> deleteMcp(text("id"))
             "searchPackages" -> searchPackages(text("query"))
             "installPackage" -> installPackage(text("source"), text("scope"))
             "removePackage" -> removePackage(text("source"), text("scope"))
@@ -351,6 +363,82 @@ class WebSettingsSurface(
         }
     }
 
+    // ---------------------------------------------------------------------- MCP
+
+    private fun reloadMcp() = pooled {
+        val items = mcpService.list()
+        post(
+            "mcp",
+            "items" to items.map { server ->
+                mapOf(
+                    "id" to server.id, "name" to server.name, "scope" to server.scope.name,
+                    "source" to server.source, "transport" to server.transport,
+                    "command" to server.command, "args" to server.args, "url" to server.url,
+                    "lifecycle" to server.lifecycle, "target" to server.target(),
+                    "enabled" to server.enabled, "valid" to server.valid,
+                    "hasEnv" to server.hasEnv, "hasHeaders" to server.hasHeaders,
+                )
+            },
+            "summary" to PiBundle.message("mcp.summary", items.size, items.count { it.enabled && it.valid }),
+            "projectAvailable" to (project?.basePath != null),
+        )
+    }
+
+    private fun saveMcp(message: JsonObject) {
+        val env = parseOptionalObject(message["envJson"]?.asStringOrNull()).getOrElse {
+            status("mcp", PiBundle.message("mcp.jsonInvalid"), error = true)
+            return
+        }
+        val headers = parseOptionalObject(message["headersJson"]?.asStringOrNull()).getOrElse {
+            status("mcp", PiBundle.message("mcp.jsonInvalid"), error = true)
+            return
+        }
+        val input = McpServerInput(
+            id = message["id"]?.asStringOrNull()?.takeIf(String::isNotBlank),
+            name = message["name"]?.asStringOrNull().orEmpty(),
+            scope = if (message["scope"]?.asStringOrNull() == McpScope.PROJECT.name) McpScope.PROJECT else McpScope.GLOBAL,
+            transport = message["transport"]?.asStringOrNull().orEmpty(),
+            command = message["command"]?.asStringOrNull().orEmpty(),
+            args = PiJson.asArray(message["args"])?.mapNotNull { it.asStringOrNull() }.orEmpty(),
+            url = message["url"]?.asStringOrNull().orEmpty(),
+            lifecycle = message["lifecycle"]?.asStringOrNull().orEmpty(),
+            env = env,
+            headers = headers,
+        )
+        status("mcp", PiBundle.message("mcp.saving"), busy = true)
+        pooled {
+            mcpService.save(input)
+                .onSuccess { status("mcp", PiBundle.message("mcp.saved")); reloadMcp() }
+                .onFailure { status("mcp", PiBundle.message("mcp.saveFailed", it.message ?: ""), error = true) }
+        }
+    }
+
+    /** A blank field preserves stored secret values; a value must be a JSON object. */
+    private fun parseOptionalObject(raw: String?): Result<JsonObject?> = runCatching {
+        if (raw.isNullOrBlank()) null
+        else JsonParser.parseString(raw).takeIf { it.isJsonObject }?.asJsonObject ?: error("invalid-json")
+    }
+
+    private fun toggleMcp(id: String, enabled: Boolean) {
+        status("mcp", PiBundle.message("mcp.saving"), busy = true)
+        pooled {
+            mcpService.setEnabled(id, enabled)
+                .onSuccess { status("mcp", ""); reloadMcp() }
+                .onFailure { status("mcp", PiBundle.message("mcp.saveFailed", it.message ?: ""), error = true) }
+        }
+    }
+
+    private fun deleteMcp(id: String) {
+        val server = mcpService.list().firstOrNull { it.id == id } ?: return
+        if (!confirm(PiBundle.message("mcp.delete.confirm", server.name), PiBundle.message("settings.tab.mcp"), warning = true)) return
+        status("mcp", PiBundle.message("mcp.saving"), busy = true)
+        pooled {
+            mcpService.delete(id)
+                .onSuccess { status("mcp", ""); reloadMcp() }
+                .onFailure { status("mcp", PiBundle.message("mcp.saveFailed", it.message ?: ""), error = true) }
+        }
+    }
+
     // ----------------------------------------------------------------- packages
 
     private fun reloadPackages() = pooled {
@@ -539,13 +627,14 @@ class WebSettingsSurface(
         internal val HANDLED_MESSAGES = setOf(
             "ready", "closeSettings", "updateDraft", "resetDraft", "resetCommitPrompt", "choosePi", "importProvidersAuto",
             "importProvidersDb", "enableProvider", "saveProvider", "deleteProvider", "toggleSkill",
-            "searchSkills", "installSkill", "searchPackages", "installPackage", "removePackage",
+            "searchSkills", "installSkill", "refreshMcp", "saveMcp", "toggleMcp", "deleteMcp",
+            "searchPackages", "installPackage", "removePackage",
             "refreshPackages", "openPackages",
         )
 
         private val SETTINGS_KEYS = listOf(
             "settings.title", "settings.tab.general", "settings.tab.providers", "settings.tab.skills",
-            "settings.tab.plugins", "settings.tab.commitAi", "settings.tab.cli", "settings.appearance", "settings.appearance.system",
+            "settings.tab.mcp", "settings.tab.plugins", "settings.tab.commitAi", "settings.tab.cli", "settings.appearance", "settings.appearance.system",
             "settings.general.description", "settings.appearance.description", "settings.appearance.light",
             "settings.appearance.dark", "settings.conversation", "settings.conversation.description",
             "settings.showThinking", "settings.expandThinking", "settings.expandToolCalls",
@@ -555,7 +644,7 @@ class WebSettingsSurface(
             "settings.cli.description", "settings.cli.path", "settings.cli.extraArgs", "settings.cli.extraArgs.hint",
             "settings.cli.notFound", "settings.detected", "settings.detecting", "settings.choose", "settings.save", "settings.cancel",
             "settings.saved", "settings.autoSaved", "settings.backToChat", "settings.installed",
-            "settings.providers.description", "settings.skills.description",
+            "settings.providers.description", "settings.skills.description", "settings.mcp.description",
             "settings.plugins.description", "providers.claudeSection", "providers.codexSection",
             "settings.commitAi.description", "settings.commitAi.generation", "settings.commitAi.model",
             "settings.commitAi.followChatModel", "settings.commitAi.language", "settings.commitAi.language.zh",
@@ -567,6 +656,13 @@ class WebSettingsSurface(
             "skills.empty", "skills.add", "skills.selectHint", "skills.name", "skills.description",
             "skills.scope.global", "skills.scope.project", "skills.search", "skills.search.placeholder",
             "skills.search.hint", "skills.install.global", "skills.install.project", "skills.install.noProject",
+            "mcp.add", "mcp.refresh", "mcp.search.placeholder", "mcp.empty", "mcp.empty.hint",
+            "mcp.summary", "mcp.scope.global", "mcp.scope.project", "mcp.status.configured",
+            "mcp.status.disabled", "mcp.status.invalid", "mcp.transport", "mcp.lifecycle",
+            "mcp.lifecycle.lazy", "mcp.lifecycle.eager", "mcp.source", "mcp.edit", "mcp.delete",
+            "mcp.dialog.add", "mcp.dialog.edit", "mcp.name", "mcp.scope", "mcp.command",
+            "mcp.args", "mcp.url", "mcp.env", "mcp.headers", "mcp.secrets.hint", "mcp.projectUnavailable",
+            "mcp.note", "mcp.saving", "mcp.saved", "mcp.saveFailed", "mcp.jsonInvalid", "mcp.delete.confirm",
             "plugins.empty", "plugins.add", "plugins.location", "plugins.source", "plugins.examples",
             "plugins.scope.global", "plugins.scope.project", "plugins.noProject", "plugins.install",
             "plugins.remove", "plugins.search", "plugins.search.action", "plugins.search.placeholder",

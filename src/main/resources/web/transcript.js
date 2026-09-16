@@ -29,6 +29,11 @@
     // handled by delegation rather than wired up per message.
     document.addEventListener('click', function (e) {
       var t = e.target;
+      var messageCopy = t.closest && t.closest('.message-copy');
+      if (messageCopy) {
+        copyUserMessage(messageCopy);
+        return;
+      }
       var copy = t.closest && t.closest('.code-copy');
       if (copy) {
         var wrap = copy.closest('.code-wrap');
@@ -40,6 +45,31 @@
     });
 
     send({ type: 'ready' });
+  }
+
+  function copyUserMessage(button) {
+    var bubble = button.closest('.bubble');
+    var source = bubble && bubble.querySelector('.message-copy-source');
+    if (!source) return;
+    send({ type: 'copy', text: source.textContent || '' });
+
+    var copiedLabel = button.getAttribute('data-copied-label') || '';
+    var copyLabel = button.getAttribute('data-copy-label') || '';
+    var label = button.querySelector('.message-copy-label');
+    var status = bubble.querySelector('.message-copy-status');
+    window.clearTimeout(button.__copyResetTimer);
+    button.classList.add('copied');
+    button.setAttribute('aria-label', copiedLabel);
+    button.setAttribute('title', copiedLabel);
+    if (label) label.textContent = copiedLabel;
+    if (status) status.textContent = copiedLabel;
+    button.__copyResetTimer = window.setTimeout(function () {
+      button.classList.remove('copied');
+      button.setAttribute('aria-label', copyLabel);
+      button.setAttribute('title', copyLabel);
+      if (label) label.textContent = copyLabel;
+      if (status) status.textContent = '';
+    }, 1600);
   }
 
   window.pi = {

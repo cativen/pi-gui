@@ -33,6 +33,8 @@ object HtmlRenderer {
 
     private fun renderUser(message: PiMessage.User): String = buildString {
         val author = esc(PiBundle.message("message.you"))
+        val copy = esc(PiBundle.message("message.copy"))
+        val copied = esc(PiBundle.message("message.copied"))
         append("""<article class="msg msg-user" aria-label="$author"><div class="user-stack">""")
         append("""<div class="message-heading user-heading"><span>$author</span></div><div class="bubble"><div class="message-content">""")
         append(Markdown.proseToHtml(message.text))
@@ -41,7 +43,17 @@ object HtmlRenderer {
             append(esc(PiBundle.message("message.imagesAttached", message.imageCount)))
             append("</i></p>")
         }
-        append("</div></div></div></article>")
+        append("</div>")
+        append("""<div class="message-actions"><button class="message-copy" type="button" data-copy-label="$copy" data-copied-label="$copied" title="$copy" aria-label="$copy">""")
+        append("""<svg class="copy-icon" viewBox="0 0 18 18" aria-hidden="true"><rect x="6" y="6" width="8.5" height="8.5" rx="1.5"/><path d="M4.5 11.5h-1V3.5h8v1"/></svg>""")
+        append("""<svg class="check-icon" viewBox="0 0 18 18" aria-hidden="true"><path d="M3.5 9l3 3 7-7"/></svg>""")
+        append("""<span class="message-copy-label">$copy</span></button>""")
+        // Keep the exact submitted text out of attributes. The page reads this hidden text node,
+        // so Markdown punctuation and line breaks survive the round trip unchanged.
+        append("""<span class="message-copy-source" hidden>""")
+        append(esc(message.text))
+        append("""</span><span class="message-copy-status sr-only" aria-live="polite"></span></div>""")
+        append("</div></div></article>")
     }
 
     private fun renderAssistant(project: Project?, message: PiMessage.Assistant): String = buildString {

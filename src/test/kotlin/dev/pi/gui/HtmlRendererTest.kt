@@ -46,6 +46,23 @@ class HtmlRendererTest : BasePlatformTestCase() {
         assertTrue("user messages need an accessible identity", html.contains("aria-label="))
     }
 
+    fun testUserMessageHasCopyControlWithExactSourceText() {
+        val original = "first **bold** line\nsecond <line> & detail"
+        val html = HtmlRenderer.render(project, PiMessage.User(original))
+
+        assertTrue("user copy control is missing", html.contains("class=\"message-copy\""))
+        assertTrue("copy control needs an accessible label", html.contains("data-copied-label="))
+        assertTrue("copy control should use vector icons", html.contains("class=\"copy-icon\""))
+        assertTrue("success state should use a check icon", html.contains("class=\"check-icon\""))
+        assertTrue("raw Markdown must remain available for copying", html.contains("first **bold** line\nsecond &lt;line&gt; &amp; detail"))
+        assertFalse("raw text must not be stored in a data attribute", html.contains("data-copy-text="))
+    }
+
+    fun testAssistantMessageDoesNotHaveUserCopyControl() {
+        val html = HtmlRenderer.render(project, assistant(ContentBlock.Text("assistant reply")))
+        assertFalse(html, html.contains("class=\"message-copy\""))
+    }
+
     fun testAttachedImageCountIsShown() {
         val html = HtmlRenderer.render(project, PiMessage.User("look", imageCount = 2))
         assertTrue(html, html.contains("class=\"attached\""))

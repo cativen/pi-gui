@@ -54,7 +54,18 @@ class WebSettingsTest : BasePlatformTestCase() {
         assertTrue(document.contains("window.__piSend"))
         assertTrue(document.contains("default-src 'none'"))
         assertTrue(document.contains("data-page=\"commit-ai\""))
+        assertTrue(document.contains("data-page=\"mcp\""))
+        assertTrue(document.contains("id=\"mcp-list\""))
         assertTrue(document.contains("id=\"commit-prompt\""))
+    }
+
+    fun testMcpNavigationSitsBetweenSkillsAndPlugins() {
+        val js = settingsJs()
+        val skills = js.indexOf("['skills', 'skill', 'settings.tab.skills']")
+        val mcp = js.indexOf("['mcp', 'mcp', 'settings.tab.mcp']")
+        val plugins = js.indexOf("['plugins', 'plugin', 'settings.tab.plugins']")
+        assertTrue("MCP must follow Skills", mcp > skills)
+        assertTrue("MCP must precede Plugins", plugins > mcp)
     }
 
     fun testCommitAiNavigationSitsBetweenPluginsAndCli() {
@@ -81,7 +92,7 @@ class WebSettingsTest : BasePlatformTestCase() {
             .findAll(body).map { it.groupValues[1] }.toSet()
         assertEquals(
             emptySet<String>(),
-            setOf("theme", "i18n", "settings", "providers", "skills", "packages", "skillResults", "packageResults", "status") - handlers,
+            setOf("theme", "i18n", "settings", "providers", "skills", "mcp", "packages", "skillResults", "packageResults", "status") - handlers,
         )
     }
 

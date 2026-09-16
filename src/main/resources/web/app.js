@@ -341,6 +341,11 @@
   }
 
   function onTranscriptClick(e) {
+    var messageCopy = e.target.closest ? e.target.closest('.message-copy') : null;
+    if (messageCopy) {
+      copyUserMessage(messageCopy);
+      return;
+    }
     var copy = e.target.closest ? e.target.closest('.code-copy') : null;
     if (copy) {
       var pre = copy.parentNode.parentNode.querySelector('pre.code');
@@ -349,6 +354,31 @@
     }
     var earlier = e.target.closest ? e.target.closest('.load-earlier') : null;
     if (earlier) send({ type: 'loadEarlier' });
+  }
+
+  function copyUserMessage(button) {
+    var bubble = button.closest('.bubble');
+    var source = bubble && bubble.querySelector('.message-copy-source');
+    if (!source) return;
+    send({ type: 'copy', text: source.textContent || '' });
+
+    var copiedLabel = button.getAttribute('data-copied-label') || '';
+    var copyLabel = button.getAttribute('data-copy-label') || '';
+    var label = button.querySelector('.message-copy-label');
+    var status = bubble.querySelector('.message-copy-status');
+    window.clearTimeout(button.__copyResetTimer);
+    button.classList.add('copied');
+    button.setAttribute('aria-label', copiedLabel);
+    button.setAttribute('title', copiedLabel);
+    if (label) label.textContent = copiedLabel;
+    if (status) status.textContent = copiedLabel;
+    button.__copyResetTimer = window.setTimeout(function () {
+      button.classList.remove('copied');
+      button.setAttribute('aria-label', copyLabel);
+      button.setAttribute('title', copyLabel);
+      if (label) label.textContent = copyLabel;
+      if (status) status.textContent = '';
+    }, 1600);
   }
 
   // ---------------------------------------------------------- command popup

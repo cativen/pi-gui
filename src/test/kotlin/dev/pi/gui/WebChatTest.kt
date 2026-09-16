@@ -76,6 +76,21 @@ class WebChatTest : BasePlatformTestCase() {
         )
     }
 
+    fun testUserCopyFeedbackKeepsAStableButtonWidth() {
+        val css = chatCss()
+        assertTrue("user copy button needs reserved width", css.contains(".message-copy") && css.contains("min-width: 76px"))
+        assertTrue("copied state should swap to a check icon", css.contains(".message-copy.copied .check-icon"))
+        assertTrue("copy action needs visible hover feedback", css.contains(".message-copy:hover"))
+    }
+
+    fun testUserCopyUsesTheExactHiddenSourceAndShowsFeedback() {
+        val js = chatJs()
+        assertTrue("user copy click is not delegated", js.contains("closest('.message-copy')"))
+        assertTrue("copy must use the exact source text", js.contains("source.textContent"))
+        assertTrue("copy action needs a stable success state", js.contains("classList.add('copied')"))
+        assertTrue("copy feedback should reset", js.contains("__copyResetTimer"))
+    }
+
     // ------------------------------------------------------- plugin → the page
 
     /**

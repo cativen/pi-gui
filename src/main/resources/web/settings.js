@@ -3,7 +3,7 @@
 
   var els = {};
   var strings = {};
-  var state = { settings: {}, providers: [], skills: [], packages: [], projectAvailable: false };
+  var state = { settings: {}, providers: [], skills: [], mcp: [], packages: [], projectAvailable: false };
   var early = [];
 
   function send(message) {
@@ -21,9 +21,15 @@
     general: '<circle cx="9" cy="9" r="2.25"/><path d="M9 2.75v1.5M9 13.75v1.5M2.75 9h1.5M13.75 9h1.5M4.6 4.6l1.05 1.05M12.35 12.35l1.05 1.05M13.4 4.6l-1.05 1.05M5.65 12.35 4.6 13.4"/>',
     provider: '<rect x="3" y="4" width="12" height="10" rx="2"/><path d="M6 8h6M6 11h4"/>',
     skill: '<path d="m9 2 1.35 4.15L14.5 7.5l-4.15 1.35L9 13l-1.35-4.15L3.5 7.5l4.15-1.35L9 2Z"/><path d="m14 11 .55 1.45L16 13l-1.45.55L14 15l-.55-1.45L12 13l1.45-.55L14 11Z"/>',
+    mcp: '<rect x="3" y="5" width="12" height="9" rx="2"/><path d="M6 5V3.5M12 5V3.5M6 8.5h.01M9 8.5h.01M12 8.5h.01M6.5 11.5h5"/>',
     plugin: '<path d="M6.5 3H4a1 1 0 0 0-1 1v2.5a2 2 0 1 1 0 4V14a1 1 0 0 0 1 1h3.5a2 2 0 1 1 4 0H14a1 1 0 0 0 1-1v-3.5a2 2 0 1 1 0-4V4a1 1 0 0 0-1-1h-3.5a2 2 0 1 1-4 0Z"/>',
     commit: '<rect x="3" y="3" width="12" height="12" rx="3"/><path d="M6.2 10.8V7.2M9 10.8V7.2M11.8 10.8V7.2"/>',
-    terminal: '<path d="m3.5 5 3.5 3.5L3.5 12M9 12.5h5.5"/>'
+    terminal: '<path d="m3.5 5 3.5 3.5L3.5 12M9 12.5h5.5"/>',
+    refresh: '<path d="M14.5 6.5A6 6 0 1 0 15 10"/><path d="M14.5 3v3.5H11"/>',
+    plus: '<path d="M9 3.5v11M3.5 9h11"/>',
+    edit: '<path d="m4 12.5-.5 2 2-.5 8-8-1.5-1.5-8 8Z"/><path d="m10.8 5.7 1.5 1.5"/>',
+    trash: '<path d="M4.5 5.5h9M7 5.5V3.8h4v1.7M6 7.5l.5 6h5l.5-6"/>',
+    chevron: '<path d="m6.5 4.5 4.5 4.5-4.5 4.5"/>'
   };
 
   function icon(name) {
@@ -37,6 +43,7 @@
       'settings-save-state', 'theme-options', 'conversation-options',
       'font-size', 'font-size-value', 'language-options', 'import-provider', 'import-provider-db',
       'providers-list', 'providers-status', 'add-skill', 'skills-list', 'skills-status',
+      'mcp-query', 'refresh-mcp', 'add-mcp', 'mcp-list', 'mcp-status', 'mcp-summary',
       'refresh-packages', 'open-packages', 'package-source', 'install-package', 'package-scopes',
       'package-query', 'search-packages', 'package-results', 'plugins-status', 'packages-summary',
       'packages-list', 'commit-language', 'commit-prompt', 'commit-prompt-count', 'reset-commit-prompt',
@@ -60,6 +67,9 @@
     els['import-provider'].addEventListener('click', function () { send({ type: 'importProvidersAuto' }); });
     els['import-provider-db'].addEventListener('click', function () { send({ type: 'importProvidersDb' }); });
     els['add-skill'].addEventListener('click', openSkillSearch);
+    els['refresh-mcp'].addEventListener('click', function () { send({ type: 'refreshMcp' }); });
+    els['add-mcp'].addEventListener('click', function () { openMcpEditor(null); });
+    els['mcp-query'].addEventListener('input', paintMcp);
     els['refresh-packages'].addEventListener('click', function () { send({ type: 'refreshPackages' }); });
     els['open-packages'].addEventListener('click', function () { send({ type: 'openPackages' }); });
     els['install-package'].addEventListener('click', installPackage);
@@ -102,6 +112,12 @@
     },
     providers: function (event) { state.providers = event.items || []; paintProviders(); },
     skills: function (event) { state.skills = event.items || []; paintSkills(); },
+    mcp: function (event) {
+      state.mcp = event.items || [];
+      state.projectAvailable = event.projectAvailable !== false;
+      els['mcp-summary'].textContent = event.summary || '';
+      paintMcp();
+    },
     packages: function (event) {
       state.packages = event.items || [];
       els['packages-summary'].textContent = event.summary || '';
@@ -136,7 +152,8 @@
     document.querySelectorAll('[data-label]').forEach(function (node) { node.textContent = t(node.dataset.label); });
     var tabs = [
       ['general', 'general', 'settings.tab.general'], ['providers', 'provider', 'settings.tab.providers'],
-      ['skills', 'skill', 'settings.tab.skills'], ['plugins', 'plugin', 'settings.tab.plugins'],
+      ['skills', 'skill', 'settings.tab.skills'], ['mcp', 'mcp', 'settings.tab.mcp'],
+      ['plugins', 'plugin', 'settings.tab.plugins'],
       ['commit-ai', 'commit', 'settings.tab.commitAi'],
       ['cli', 'terminal', 'settings.tab.cli']
     ];
@@ -150,6 +167,10 @@
     els['import-provider'].textContent = t('providers.import.auto');
     els['import-provider-db'].textContent = t('providers.import.db');
     els['add-skill'].textContent = '+ ' + t('skills.add');
+    els['refresh-mcp'].innerHTML = icon('refresh') + '<span class="sr-only">' + esc(t('mcp.refresh')) + '</span>';
+    els['refresh-mcp'].title = t('mcp.refresh');
+    els['add-mcp'].innerHTML = icon('plus') + '<span>' + esc(t('mcp.add')) + '</span>';
+    els['mcp-query'].placeholder = t('mcp.search.placeholder');
     els['refresh-packages'].textContent = '↻ ' + t('plugins.refresh');
     els['install-package'].textContent = t('plugins.install');
     els['search-packages'].textContent = t('plugins.search.action');
@@ -160,9 +181,10 @@
   function showPage(page) {
     document.querySelectorAll('.settings-page').forEach(function (node) { node.classList.toggle('active', node.dataset.page === page); });
     document.querySelectorAll('.settings-nav-item').forEach(function (node) { node.classList.toggle('active', node.dataset.page === page); });
+    if (page === 'mcp') send({ type: 'refreshMcp' });
   }
 
-  function paintAll() { paintSettings(); paintProviders(); paintSkills(); paintPackages(); }
+  function paintAll() { paintSettings(); paintProviders(); paintSkills(); paintMcp(); paintPackages(); }
 
   function paintSettings() {
     var value = state.settings;
@@ -283,6 +305,92 @@
         '<button class="button small install-skill" data-busy-area="skills" data-id="' + esc(item.id) + '" data-scope="PROJECT" ' + (state.projectAvailable ? '' : 'disabled') + '>' + esc(t('skills.install.project')) + '</button></div></div>';
     }).join('') : emptyState('⌕', t('skills.search.none'));
     host.querySelectorAll('.install-skill').forEach(function (button) { button.addEventListener('click', function () { send({ type: 'installSkill', id: button.dataset.id, scope: button.dataset.scope }); }); });
+  }
+
+  function paintMcp() {
+    if (!els['mcp-list']) return;
+    var query = (els['mcp-query'].value || '').trim().toLowerCase();
+    var items = state.mcp.filter(function (item) {
+      return !query || [item.name, item.transport, item.target, item.source].join(' ').toLowerCase().indexOf(query) >= 0;
+    });
+    if (!items.length) {
+      var message = state.mcp.length ? t('mcp.empty') : t('mcp.empty.hint');
+      els['mcp-list'].innerHTML = emptyState(icon('mcp'), message);
+      return;
+    }
+    els['mcp-list'].innerHTML = items.map(mcpCard).join('');
+    els['mcp-list'].querySelectorAll('.mcp-expand').forEach(function (button) {
+      button.addEventListener('click', function () {
+        var card = button.closest('.mcp-card');
+        var expanded = button.getAttribute('aria-expanded') === 'true';
+        button.setAttribute('aria-expanded', String(!expanded));
+        card.classList.toggle('expanded', !expanded);
+        card.querySelector('.mcp-details').hidden = expanded;
+      });
+    });
+    els['mcp-list'].querySelectorAll('.mcp-edit').forEach(function (button) {
+      button.addEventListener('click', function () {
+        var server = state.mcp.find(function (item) { return item.id === button.dataset.id; });
+        if (server) openMcpEditor(server);
+      });
+    });
+    els['mcp-list'].querySelectorAll('.mcp-delete').forEach(function (button) {
+      button.addEventListener('click', function () { send({ type: 'deleteMcp', id: button.dataset.id }); });
+    });
+    els['mcp-list'].querySelectorAll('.mcp-toggle').forEach(function (input) {
+      input.addEventListener('change', function () { send({ type: 'toggleMcp', id: input.dataset.id, enabled: input.checked }); });
+    });
+  }
+
+  function mcpCard(server) {
+    var statusKey = !server.valid ? 'mcp.status.invalid' : (server.enabled ? 'mcp.status.configured' : 'mcp.status.disabled');
+    var statusClass = !server.valid ? 'invalid' : (server.enabled ? 'configured' : 'disabled');
+    var scopeKey = server.scope === 'PROJECT' ? 'mcp.scope.project' : 'mcp.scope.global';
+    var detailFlags = [server.hasEnv ? t('mcp.env') : '', server.hasHeaders ? t('mcp.headers') : ''].filter(Boolean).join(' · ');
+    return '<article class="mcp-card resource-card' + (server.enabled ? '' : ' is-disabled') + '">' +
+      '<button class="mcp-expand" type="button" aria-expanded="false" aria-label="' + esc(server.name) + '">' + icon('chevron') + '</button>' +
+      '<div class="resource-icon mcp-icon">' + icon('mcp') + '</div>' +
+      '<div class="resource-copy"><div class="resource-name">' + esc(server.name) +
+      '<span class="mcp-status-dot ' + statusClass + '"></span><span class="mcp-status-label ' + statusClass + '">' + esc(t(statusKey)) + '</span></div>' +
+      '<div class="mcp-meta"><span class="badge">' + esc(t(scopeKey)) + '</span><span class="badge">' + esc(server.transport) + '</span><code>' + esc(server.target || t('mcp.status.invalid')) + '</code></div>' +
+      '<div class="mcp-details" hidden><dl><div><dt>' + esc(t('mcp.lifecycle')) + '</dt><dd>' + esc(t(server.lifecycle === 'eager' ? 'mcp.lifecycle.eager' : 'mcp.lifecycle.lazy')) + '</dd></div>' +
+      '<div><dt>' + esc(t('mcp.source')) + '</dt><dd><code>' + esc(server.source) + '</code></dd></div>' +
+      (detailFlags ? '<div><dt>' + esc(t('mcp.secrets.hint')) + '</dt><dd>' + esc(detailFlags) + '</dd></div>' : '') + '</dl></div></div>' +
+      '<div class="resource-actions mcp-actions"><button class="icon-button mcp-edit" type="button" data-id="' + esc(server.id) + '" title="' + esc(t('mcp.edit')) + '">' + icon('edit') + '</button>' +
+      '<button class="icon-button danger-text mcp-delete" type="button" data-id="' + esc(server.id) + '" title="' + esc(t('mcp.delete')) + '">' + icon('trash') + '</button>' +
+      '<label class="resource-toggle" title="' + esc(t(statusKey)) + '"><input class="switch-input mcp-toggle" type="checkbox" data-id="' + esc(server.id) + '" ' + (server.enabled ? 'checked' : '') + '><span class="switch"></span></label></div></article>';
+  }
+
+  function openMcpEditor(server) {
+    var editing = !!server;
+    var transport = server ? server.transport : 'stdio';
+    var scope = server ? server.scope : 'GLOBAL';
+    openModal(t(editing ? 'mcp.dialog.edit' : 'mcp.dialog.add'), '<form id="mcp-form" class="modal-form">' +
+      fieldHtml('mcp-name', 'mcp.name', server ? server.name : '') +
+      '<label class="field"><span>' + esc(t('mcp.scope')) + '</span><select id="mcp-scope" ' + (editing ? 'disabled' : '') + '><option value="GLOBAL" ' + (scope === 'GLOBAL' ? 'selected' : '') + '>' + esc(t('mcp.scope.global')) + '</option><option value="PROJECT" ' + (scope === 'PROJECT' ? 'selected' : '') + ' ' + (state.projectAvailable ? '' : 'disabled') + '>' + esc(t('mcp.scope.project')) + '</option></select>' + (!state.projectAvailable ? '<small>' + esc(t('mcp.projectUnavailable')) + '</small>' : '') + '</label>' +
+      '<label class="field"><span>' + esc(t('mcp.transport')) + '</span><select id="mcp-transport"><option value="stdio">stdio</option><option value="streamable-http">streamable-http</option><option value="sse">sse</option></select></label>' +
+      '<div id="mcp-stdio-fields">' + fieldHtml('mcp-command', 'mcp.command', server ? server.command : '') + '<label class="field"><span>' + esc(t('mcp.args')) + '</span><textarea id="mcp-args" rows="4" spellcheck="false">' + esc(server ? (server.args || []).join('\n') : '') + '</textarea></label></div>' +
+      '<div id="mcp-url-fields">' + fieldHtml('mcp-url', 'mcp.url', server ? server.url : '') + '</div>' +
+      '<label class="field"><span>' + esc(t('mcp.lifecycle')) + '</span><select id="mcp-lifecycle"><option value="lazy">' + esc(t('mcp.lifecycle.lazy')) + '</option><option value="eager">' + esc(t('mcp.lifecycle.eager')) + '</option></select></label>' +
+      '<div class="mcp-secret-grid"><label class="field"><span>' + esc(t('mcp.env')) + '</span><textarea id="mcp-env" rows="4" spellcheck="false" placeholder="{ &quot;TOKEN&quot;: &quot;...&quot; }"></textarea></label><label class="field"><span>' + esc(t('mcp.headers')) + '</span><textarea id="mcp-headers" rows="4" spellcheck="false" placeholder="{ &quot;Authorization&quot;: &quot;...&quot; }"></textarea></label></div>' +
+      '<small class="modal-hint">' + esc(t('mcp.secrets.hint')) + '</small><div class="modal-actions"><button id="cancel-mcp" class="button" type="button">' + esc(t('settings.cancel')) + '</button><button class="button primary" type="submit">' + esc(t('settings.save')) + '</button></div></form>');
+    document.getElementById('mcp-transport').value = transport;
+    document.getElementById('mcp-lifecycle').value = server && server.lifecycle === 'eager' ? 'eager' : 'lazy';
+    function updateTransportFields() {
+      var stdio = document.getElementById('mcp-transport').value === 'stdio';
+      document.getElementById('mcp-stdio-fields').hidden = !stdio;
+      document.getElementById('mcp-url-fields').hidden = stdio;
+    }
+    document.getElementById('mcp-transport').addEventListener('change', updateTransportFields);
+    updateTransportFields();
+    document.getElementById('cancel-mcp').addEventListener('click', closeModal);
+    document.getElementById('mcp-form').addEventListener('submit', function (event) {
+      event.preventDefault();
+      send({ type: 'saveMcp', id: server ? server.id : '', name: valueOf('mcp-name'), scope: valueOf('mcp-scope') || scope,
+        transport: valueOf('mcp-transport'), command: valueOf('mcp-command'), args: valueOf('mcp-args').split(/\r?\n/),
+        url: valueOf('mcp-url'), lifecycle: valueOf('mcp-lifecycle'), envJson: valueOf('mcp-env'), headersJson: valueOf('mcp-headers') });
+      closeModal();
+    });
   }
 
   function paintPackages() {
