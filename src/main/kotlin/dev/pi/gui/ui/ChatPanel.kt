@@ -2013,6 +2013,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     /** Change marker over the registry sidecar and pi's models.json. */
     private fun providersFingerprint(): String {
+        if (!PiSettings.getInstance().credentialAccessGranted) return "credential-access-denied"
         val registry = ProvidersRegistry.default()
         return listOf(registry.sidecarFile(), registry.modelsFile())
             .joinToString("|") { "${it.length()}:${it.lastModified()}" }

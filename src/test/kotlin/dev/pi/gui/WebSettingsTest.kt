@@ -4,6 +4,9 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.pi.gui.providers.ProvidersRegistry
+import dev.pi.gui.providers.CcSwitchImporter
+import dev.pi.gui.providers.ImportedProvider
+import dev.pi.gui.providers.ProviderKind
 import dev.pi.gui.settings.PiSettings
 import dev.pi.gui.settings.ThemeMode
 import dev.pi.gui.settings.UiLanguage
@@ -94,6 +97,39 @@ class WebSettingsTest : BasePlatformTestCase() {
             emptySet<String>(),
             setOf("theme", "i18n", "settings", "providers", "skills", "mcp", "packages", "skillResults", "packageResults", "status") - handlers,
         )
+    }
+
+    fun testStoredApiKeyIsNeverPostedToJcef() {
+        val page = RecordingPage()
+        val registry = ProvidersRegistry(File(createTempDirectory("pi-settings-secrets").toFile(), "agent"))
+        registry.import(
+            CcSwitchImporter.Outcome(
+                listOf(
+                    ImportedProvider(
+                        id = "",
+                        name = "Secret provider",
+                        kind = ProviderKind.CLAUDE_CODE,
+                        baseUrl = "https://example.test",
+                        apiKey = "must-not-enter-jcef",
+                        models = listOf("model-one"),
+                        api = "anthropic-messages",
+                    )
+                ),
+                emptyList(),
+            )
+        )
+        val surface = WebSettingsSurface(project, registry, page = { page })
+        try {
+            val event = page.posted.last { it["type"] == "providers" }
+            val items = event["items"] as List<*>
+            val provider = items.single() as Map<*, *>
+            assertEquals("", provider["apiKey"])
+            assertEquals(true, provider["hasApiKey"])
+            assertFalse(event.toString().contains("must-not-enter-jcef"))
+        } finally {
+            surface.dispose()
+            registry.sidecarFile().parentFile.deleteRecursively()
+        }
     }
 
     fun testGeneralAndCliDraftOnlyApplyWhenRequested() {

@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "dev.pi"
-version = "1.0.1"
+version = "1.0.2"
 
 repositories {
     mavenCentral()
@@ -78,20 +78,41 @@ intellijPlatform {
 
             <p>Available in English, Simplified Chinese and Traditional Chinese.</p>
 
+            <h4>AI credential access and privacy</h4>
+            <p>Pi GUI does not read cc-switch or imported AI credentials until you explicitly
+            allow it in a permission dialog. The dialog appears before the first credential
+            import and identifies the files, credential names and purpose of the access.</p>
+            <ul>
+              <li><b>Sources:</b> <code>~/.cc-switch/cc-switch.db</code>,
+                  <code>~/.cc-switch/config.json</code>, a <code>cc-switch.db</code> file you
+                  select, and the specifically named AI environment variables below.</li>
+              <li><b>Values:</b> <code>ANTHROPIC_AUTH_TOKEN</code>,
+                  <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, provider base URLs
+                  and model names. Pi GUI never reads the complete environment.</li>
+              <li><b>Purpose:</b> copy the selected provider configuration to local Pi files
+                  (<code>~/.pi/agent/providers.import.json</code> and managed entries in
+                  <code>~/.pi/agent/models.json</code>) so the locally installed pi CLI can
+                  authenticate with the selected AI provider.</li>
+              <li><b>Handling:</b> credentials remain on your computer. Pi GUI does not send them
+                  to the plugin developer and does not collect telemetry. When used, the local pi
+                  CLI sends a credential only to the AI provider you selected.</li>
+            </ul>
+            <p>If permission is denied, Pi GUI does not read these credential files or AI
+            environment variables, and provider import remains disabled.</p>
+
             <h4>Requirements</h4>
             <p>The <code>pi</code> CLI must be installed and authenticated on your machine; this
             plugin drives it, it does not bundle or replace it:</p>
             <p><code>npm i -g @earendil-works/pi-coding-agent</code></p>
         """.trimIndent()
         changeNotes = """
-            <h4>1.0.1</h4>
-            <p>Improves the JCEF experience and adds IDE-integrated AI workflows.</p>
+            <h4>1.0.2</h4>
+            <p>Adds explicit, fail-closed permission handling for local AI credentials.</p>
             <ul>
-              <li>Add MCP server management for global and project configurations.</li>
-              <li>Add AI-generated Git commit messages from the selected diff.</li>
-              <li>Add copy controls to user messages.</li>
-              <li>Keep settings inside Pi GUI with working native actions.</li>
-              <li>Improve responsive conversation layout and eliminate streaming flicker.</li>
+              <li>Ask for permission before reading cc-switch credential files.</li>
+              <li>Explain exactly which files and credential fields are accessed and why.</li>
+              <li>Keep stored API keys out of the JCEF page and preserve them on blank edits.</li>
+              <li>Document credential access and privacy in the Marketplace description.</li>
             </ul>
         """.trimIndent()
         ideaVersion {

@@ -50,6 +50,7 @@ class WebSettingsSurface(
     private val mcpService: McpConfigService = McpConfigService(projectDir = project?.basePath?.let(::File)),
     private val embedded: Boolean = false,
     private val onClose: () -> Unit = {},
+    private val credentialConsent: (javax.swing.JComponent) -> Boolean = { CredentialAccessConsent.request(it) },
     page: ((JsonObject) -> Unit) -> WebPage = { PiWebView("settings", it) },
 ) : Disposable {
 
@@ -132,7 +133,9 @@ class WebSettingsSurface(
                 if (embedded) applyEmbeddedChange("commitPrompt")
             }
             "choosePi" -> choosePiExecutable()
-            "importProvidersAuto" -> importProviders { CcSwitchImporter.importAuto() }
+            "importProvidersAuto" -> if (requestCredentialAccess()) {
+                importProviders { CcSwitchImporter.importAuto() }
+            }
             "importProvidersDb" -> chooseAndImportProviderDb()
             "enableProvider" -> enableProvider(text("id"))
             "saveProvider" -> saveProvider(message)
@@ -209,7 +212,9 @@ class WebSettingsSurface(
                     "name" to provider.name,
                     "kind" to provider.kind.name,
                     "baseUrl" to provider.baseUrl,
-                    "apiKey" to provider.apiKey,
+                    // Never expose a stored secret to Chromium. A blank edit preserves it.
+                    "apiKey" to "",
+                    "hasApiKey" to provider.apiKey.isNotBlank(),
                     "models" to provider.models,
                     "current" to (PiSettings.getInstance().activeProvider == provider.id),
                 )
@@ -234,7 +239,14 @@ class WebSettingsSurface(
         }
     }
 
+    private fun requestCredentialAccess(): Boolean {
+        if (credentialConsent(component)) return true
+        status("providers", PiBundle.message("credentials.consent.denied"), error = true)
+        return false
+    }
+
     private fun chooseAndImportProviderDb() {
+        if (!requestCredentialAccess()) return
         val chooser = JFileChooser().apply {
             dialogTitle = PiBundle.message("providers.import.db.title")
             fileSelectionMode = JFileChooser.FILES_ONLY
@@ -262,7 +274,8 @@ class WebSettingsSurface(
             ?.filter { it.isNotEmpty() }?.distinct().orEmpty()
         val name = message["name"]?.asStringOrNull()?.trim().orEmpty()
         val baseUrl = message["baseUrl"]?.asStringOrNull()?.trim().orEmpty()
-        val apiKey = message["apiKey"]?.asStringOrNull()?.trim().orEmpty()
+        // The browser never receives the existing key. Empty means "keep the stored value".
+        val apiKey = message["apiKey"]?.asStringOrNull()?.trim().orEmpty().ifBlank { original.apiKey }
         if (name.isEmpty() || baseUrl.isEmpty() || apiKey.isEmpty() || models.isEmpty()) {
             status("providers", PiBundle.message("providers.invalid"), error = true)
             return
@@ -652,7 +665,7 @@ class WebSettingsSurface(
             "settings.commitAi.restoreDefault", "settings.commitAi.privacy",
             "providers.import.auto", "providers.import.db", "providers.empty.hint", "providers.enable",
             "providers.edit", "providers.delete", "providers.current", "providers.dialog.title",
-            "providers.name", "providers.baseUrl", "providers.apiKey", "providers.models",
+            "providers.name", "providers.baseUrl", "providers.apiKey", "providers.apiKey.preserve", "providers.models",
             "skills.empty", "skills.add", "skills.selectHint", "skills.name", "skills.description",
             "skills.scope.global", "skills.scope.project", "skills.search", "skills.search.placeholder",
             "skills.search.hint", "skills.install.global", "skills.install.project", "skills.install.noProject",

@@ -7,6 +7,7 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.intellij.openapi.diagnostic.Logger
 import dev.pi.gui.PiLocator
+import dev.pi.gui.settings.PiSettings
 import java.io.File
 
 /**
@@ -17,7 +18,10 @@ import java.io.File
  *  - `models.json` — pi's official custom-provider file. We only ever touch entries whose id
  *    starts with [ID_PREFIX]; anything the user wrote there by hand survives untouched.
  */
-class ProvidersRegistry(private val agentDir: File) {
+class ProvidersRegistry(
+    private val agentDir: File,
+    private val credentialAccessAllowed: () -> Boolean = { true },
+) {
 
     private val LOG = Logger.getInstance(ProvidersRegistry::class.java)
 
@@ -27,11 +31,14 @@ class ProvidersRegistry(private val agentDir: File) {
     fun modelsFile(): File = File(agentDir, MODELS_NAME)
 
     /** All imported providers, Claude Code first then Codex, each alphabetical. */
-    fun list(): List<ImportedProvider> = try {
-        readSidecar().sortedWith(compareBy({ it.kind }, { it.name.lowercase() }))
-    } catch (e: Exception) {
-        LOG.warn("Cannot read provider sidecar", e)
-        emptyList()
+    fun list(): List<ImportedProvider> {
+        if (!credentialAccessAllowed()) return emptyList()
+        return try {
+            readSidecar().sortedWith(compareBy({ it.kind }, { it.name.lowercase() }))
+        } catch (e: Exception) {
+            LOG.warn("Cannot read provider sidecar", e)
+            emptyList()
+        }
     }
 
     fun find(id: String): ImportedProvider? = list().firstOrNull { it.id == id }
@@ -41,6 +48,7 @@ class ProvidersRegistry(private val agentDir: File) {
      * (falling back to provider id) so re-importing updates in place instead of duplicating.
      */
     fun import(outcome: CcSwitchImporter.Outcome): ImportSummary {
+        requireCredentialAccess()
         val existing = readSidecar().toMutableList()
         var added = 0
         var updated = 0
@@ -65,6 +73,7 @@ class ProvidersRegistry(private val agentDir: File) {
 
     /** Applies an edit made in the settings dialog. */
     fun update(provider: ImportedProvider) {
+        requireCredentialAccess()
         val existing = readSidecar().toMutableList()
         val index = existing.indexOfFirst { it.id == provider.id }
         if (index < 0) return
@@ -73,7 +82,12 @@ class ProvidersRegistry(private val agentDir: File) {
     }
 
     fun delete(id: String) {
+        requireCredentialAccess()
         write(readSidecar().filterNot { it.id == id })
+    }
+
+    private fun requireCredentialAccess() {
+        check(credentialAccessAllowed()) { "Explicit permission to access AI credentials was not granted" }
     }
 
     // ------------------------------------------------------------- storage
@@ -214,6 +228,8 @@ class ProvidersRegistry(private val agentDir: File) {
         const val DEFAULT_CONTEXT_WINDOW = 200_000
         const val DEFAULT_MAX_TOKENS = 64_000
 
-        fun default(): ProvidersRegistry = ProvidersRegistry(PiLocator.agentDir())
+        fun default(): ProvidersRegistry = ProvidersRegistry(PiLocator.agentDir()) {
+            PiSettings.getInstance().credentialAccessGranted
+        }
     }
 }

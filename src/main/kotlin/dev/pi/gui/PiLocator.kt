@@ -22,12 +22,30 @@ object PiLocator {
         "/usr/bin",
     )
 
-    /** Shell environment, including a `PATH` that reflects the user's profile. */
-    fun shellEnvironment(): Map<String, String> = try {
-        EnvironmentUtil.getEnvironmentMap()
+    /**
+     * Minimal shell environment for child processes.
+     *
+     * Do not call `EnvironmentUtil.getEnvironmentMap()`: it reads every environment variable,
+     * including unrelated secrets. We fetch only operational variables plus the three documented
+     * AI credential variables after explicit consent. Before consent, blank entries deliberately
+     * override credentials inherited by [ProcessBuilder].
+     */
+    fun shellEnvironment(): Map<String, String> {
+        val result = linkedMapOf<String, String>()
+        SAFE_ENV_KEYS.forEach { key -> environmentValue(key)?.let { result[key] = it } }
+        if (PiSettings.getInstance().credentialAccessGranted) {
+            AI_CREDENTIAL_KEYS.forEach { key -> environmentValue(key)?.let { result[key] = it } }
+        } else {
+            AI_CREDENTIAL_KEYS.forEach { key -> result[key] = "" }
+        }
+        return result
+    }
+
+    private fun environmentValue(name: String): String? = try {
+        EnvironmentUtil.getValue(name)
     } catch (e: Throwable) {
-        LOG.warn("Falling back to JVM environment", e)
-        System.getenv()
+        LOG.warn("Falling back to the JVM value for environment variable $name", e)
+        System.getenv(name)
     }
 
     /**
@@ -88,9 +106,12 @@ object PiLocator {
         if (isWindows()) return null
         val shell = System.getenv("SHELL") ?: "/bin/sh"
         return try {
-            val proc = ProcessBuilder(shell, "-lc", "command -v pi")
+            val builder = ProcessBuilder(shell, "-lc", "command -v pi")
                 .redirectErrorStream(false)
-                .start()
+            if (!PiSettings.getInstance().credentialAccessGranted) {
+                AI_CREDENTIAL_KEYS.forEach { builder.environment()[it] = "" }
+            }
+            val proc = builder.start()
             val out = proc.inputStream.bufferedReader().readText().trim()
             if (!proc.waitFor(5, TimeUnit.SECONDS)) {
                 proc.destroyForcibly()
@@ -120,4 +141,18 @@ object PiLocator {
 
     private fun expandTilde(path: String): String =
         if (path.startsWith("~")) System.getProperty("user.home") + path.substring(1) else path
+
+    private val SAFE_ENV_KEYS = listOf(
+        "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "LC_CTYPE",
+        "TMPDIR", "TMP", "TEMP", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME",
+        "USERPROFILE", "APPDATA", "LOCALAPPDATA", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT",
+        "NODE_PATH", "NVM_DIR", "FNM_DIR", "VOLTA_HOME", "PI_CODING_AGENT_DIR",
+        "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+    )
+
+    internal val AI_CREDENTIAL_KEYS = listOf(
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+    )
 }

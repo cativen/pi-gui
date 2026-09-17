@@ -6,6 +6,7 @@ import dev.pi.gui.providers.ImportedProvider
 import dev.pi.gui.providers.ProviderKind
 import dev.pi.gui.providers.ProvidersRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -47,6 +48,22 @@ class ProvidersRegistryTest {
 
     private fun modelsJson(registry: ProvidersRegistry): com.google.gson.JsonObject =
         JsonParser.parseString(registry.modelsFile().readText()).asJsonObject
+
+    @Test
+    fun `denied credential access neither reads nor writes provider secrets`() {
+        val agentDir = temp.newFolder()
+        val sidecar = File(agentDir, ProvidersRegistry.SIDECAR_NAME)
+        sidecar.writeText("this would fail JSON parsing if it were read")
+        val registry = ProvidersRegistry(agentDir) { false }
+
+        assertEquals(emptyList<ImportedProvider>(), registry.list())
+        assertFalse(registry.modelsFile().exists())
+
+        val error = runCatching { registry.import(outcome(provider("Denied"))) }.exceptionOrNull()
+        assertTrue(error is IllegalStateException)
+        assertEquals("this would fail JSON parsing if it were read", sidecar.readText())
+        assertFalse(registry.modelsFile().exists())
+    }
 
     @Test
     fun `import writes the sidecar and a ccswitch entry into models json`() {

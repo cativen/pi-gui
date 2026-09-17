@@ -59,6 +59,8 @@ class PiSettings : PersistentStateComponent<PiSettings.State> {
         var commitLanguage: String = CommitLanguage.CHINESE.name,
         /** Extra user requirements appended to the built-in commit-message prompt. */
         var commitPrompt: String = DEFAULT_COMMIT_PROMPT,
+        /** User explicitly allowed Pi GUI to read locally stored AI provider credentials. */
+        var credentialAccessGranted: Boolean = false,
     )
 
     private var state = State()
@@ -122,6 +124,10 @@ class PiSettings : PersistentStateComponent<PiSettings.State> {
     var commitPrompt: String
         get() = state.commitPrompt
         set(value) { state.commitPrompt = value.take(MAX_COMMIT_PROMPT_LENGTH) }
+
+    var credentialAccessGranted: Boolean
+        get() = state.credentialAccessGranted
+        set(value) { state.credentialAccessGranted = value }
 
     /** Notified after the settings dialog applies changes, so open panels can re-render. */
     fun addChangeListener(listener: () -> Unit) { listeners.add(listener) }

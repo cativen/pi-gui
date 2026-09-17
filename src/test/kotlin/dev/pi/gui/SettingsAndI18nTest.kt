@@ -38,6 +38,18 @@ class SettingsAndI18nTest : BasePlatformTestCase() {
         assertEquals(UiLanguage.SIMPLIFIED_CHINESE, PiSettings.State().let { UiLanguage.fromTag(it.language) })
     }
 
+    fun testCredentialAccessIsDeniedByDefault() {
+        assertFalse(PiSettings.State().credentialAccessGranted)
+    }
+
+    fun testAiEnvironmentCredentialsAreMaskedWithoutConsent() {
+        PiSettings.getInstance().credentialAccessGranted = false
+        val environment = PiLocator.shellEnvironment()
+        PiLocator.AI_CREDENTIAL_KEYS.forEach { key ->
+            assertEquals("$key must be masked before consent", "", environment[key])
+        }
+    }
+
     fun testAllThreeLanguagesResolveDistinctText() {
         val translations = mutableSetOf<String>()
         UiLanguage.entries.forEach { language ->

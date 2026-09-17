@@ -268,7 +268,8 @@
   function openProviderEditor(provider) {
     openModal(t('providers.dialog.title'), '<div class="modal-form">' +
       fieldHtml('provider-name', 'providers.name', provider.name) + fieldHtml('provider-url', 'providers.baseUrl', provider.baseUrl) +
-      fieldHtml('provider-key', 'providers.apiKey', provider.apiKey, 'password') +
+      fieldHtml('provider-key', 'providers.apiKey', '', 'password') +
+      '<small>' + esc(t('providers.apiKey.preserve')) + '</small>' +
       '<label class="field"><span>' + esc(t('providers.models')) + '</span><textarea id="provider-models" rows="6">' + esc((provider.models || []).join('\n')) + '</textarea></label>' +
       '<div class="modal-actions"><button id="cancel-provider" class="button">' + esc(t('settings.cancel')) + '</button><button id="save-provider" class="button primary">' + esc(t('settings.save')) + '</button></div></div>');
     document.getElementById('cancel-provider').addEventListener('click', closeModal);

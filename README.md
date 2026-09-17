@@ -16,7 +16,7 @@ no code with it.
    ```bash
    ./gradlew buildPlugin
    ```
-   The artifact lands at `build/distributions/pi-gui-1.0.1.zip`.
+   The artifact lands at `build/distributions/pi-gui-1.0.2.zip`.
 
 2. In your IDE: **Settings → Plugins → ⚙ → Install Plugin from Disk…**, pick the zip, restart.
 
@@ -31,6 +31,23 @@ no code with it.
   ```
   The plugin finds `pi` through your login-shell `PATH` (so nvm/fnm/volta installs work). If it
   lives somewhere unusual, set the path in **Settings → Tools → Pi GUI**.
+
+### AI credential access and privacy
+
+Pi GUI does not read cc-switch or imported AI credentials until you explicitly allow it in a
+permission dialog. Before the first import, the dialog explains that Pi GUI may read:
+
+- `~/.cc-switch/cc-switch.db`, `~/.cc-switch/config.json`, or a `cc-switch.db` file you select;
+- environment variables `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY`;
+- provider base URLs and model names.
+
+The selected values are copied locally to `~/.pi/agent/providers.import.json` and Pi GUI-managed
+entries in `~/.pi/agent/models.json`, so the locally installed pi CLI can authenticate with the
+provider you select. Credentials stay on this computer. Pi GUI does not send them to the plugin
+developer and does not collect telemetry. When used, the local pi CLI sends a credential only to
+the selected AI provider. Pi GUI never reads the complete environment. If permission is denied,
+Pi GUI does not read the credential files or AI environment variables, and provider import remains
+disabled.
 
 ## What it does
 

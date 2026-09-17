@@ -17,7 +17,7 @@
    ./gradlew buildPlugin
    ```
 
-   构建产物位于 `build/distributions/pi-gui-1.0.1.zip`。
+   构建产物位于 `build/distributions/pi-gui-1.0.2.zip`。
 
 2. 在 IDE 中打开 **Settings → Plugins → ⚙ → Install Plugin from Disk…**，选择 ZIP 文件并重启 IDE。
 
@@ -34,6 +34,21 @@
 
   插件会通过登录 Shell 的 `PATH` 查找 `pi`，因此支持 nvm、fnm 和 volta 等安装方式。
   如果安装位置比较特殊，可以在 **Settings → Tools → Pi GUI** 中手动指定路径。
+
+### AI 凭据访问与隐私
+
+未经你的明确授权，Pi GUI 不会读取 cc-switch 或已导入的 AI 凭据。首次导入前，权限弹窗会明确说明
+Pi GUI 可能读取：
+
+- `~/.cc-switch/cc-switch.db`、`~/.cc-switch/config.json`，或你选择的 `cc-switch.db` 文件；
+- 环境变量 `ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`；
+- 供应商 Base URL 和模型名称。
+
+你选择的配置只会复制到本机的 `~/.pi/agent/providers.import.json` 和
+`~/.pi/agent/models.json` 中由 Pi GUI 管理的条目，让本机安装的 pi CLI 可以向所选供应商进行身份验证。
+凭据保留在本机；Pi GUI 不会把凭据发送给插件开发者，也不会收集遥测数据。只有在使用对应供应商时，
+本机 pi CLI 才会把凭据发送给所选 AI 供应商。Pi GUI 不会读取完整的环境变量。如果拒绝授权，Pi GUI
+不会读取凭据文件或 AI 环境变量，供应商导入功能将保持禁用。
 
 ## 功能
 

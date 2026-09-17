@@ -12,6 +12,7 @@ import java.awt.BorderLayout
 import java.awt.Dimension
 import javax.swing.JComponent
 import javax.swing.JPanel
+import javax.swing.JPasswordField
 
 /**
  * Edits an imported provider: display name, endpoint, key and the model list (one id per
@@ -25,7 +26,8 @@ class EditProviderDialog(
 
     private val nameField = JBTextField(original.name)
     private val baseUrlField = JBTextField(original.baseUrl)
-    private val apiKeyField = JBTextField(original.apiKey)
+    // A stored credential is never placed back into an editable UI control.
+    private val apiKeyField = JPasswordField()
     private val modelsArea = JBTextArea().apply {
         text = original.models.joinToString("\n")
         rows = 4
@@ -52,9 +54,7 @@ class EditProviderDialog(
                     border = JBUI.Borders.empty(10, 0, 3, 0)
                 }
             )
-            if (mono) {
-                (field as? JBTextField)?.font = PiTheme.monoFont()
-            }
+            if (mono) field.font = PiTheme.monoFont()
             field.maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(30))
             field.alignmentX = JPanel.LEFT_ALIGNMENT
             root.add(field)
@@ -63,6 +63,12 @@ class EditProviderDialog(
         addField("providers.name", nameField)
         addField("providers.baseUrl", baseUrlField, mono = true)
         addField("providers.apiKey", apiKeyField, mono = true)
+        root.add(
+            JBLabel(PiBundle.message("providers.apiKey.preserve")).apply {
+                foreground = PiTheme.mutedFg()
+                border = JBUI.Borders.empty(3, 0, 0, 0)
+            }
+        )
         root.add(
             JBLabel(PiBundle.message("providers.models")).apply {
                 font = font.deriveFont(java.awt.Font.BOLD, font.size2D - 1f)
@@ -82,8 +88,7 @@ class EditProviderDialog(
 
     override fun doOKAction() {
         val models = modelsArea.text.lines().map { it.trim() }.filter { it.isNotEmpty() }.distinct()
-        val valid = nameField.text.isNotBlank() && baseUrlField.text.isNotBlank() &&
-            apiKeyField.text.isNotBlank() && models.isNotEmpty()
+        val valid = nameField.text.isNotBlank() && baseUrlField.text.isNotBlank() && models.isNotEmpty()
         if (!valid) {
             // Keep the dialog open and tell the user what is missing.
             setErrorText(PiBundle.message("providers.invalid"))
@@ -92,7 +97,7 @@ class EditProviderDialog(
         edited = original.copy(
             name = nameField.text.trim(),
             baseUrl = baseUrlField.text.trim(),
-            apiKey = apiKeyField.text.trim(),
+            apiKey = String(apiKeyField.password).trim().ifBlank { original.apiKey },
             models = models,
             defaultModel = original.defaultModel?.takeIf { it in models } ?: models.first(),
         )

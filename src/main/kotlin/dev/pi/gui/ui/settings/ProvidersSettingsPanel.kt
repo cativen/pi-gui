@@ -48,6 +48,8 @@ class ProvidersSettingsPanel(
     /** Overridden by tests. */
     private val dbImporter: (File) -> CcSwitchImporter.Outcome =
         { CcSwitchImporter.importFromDb(it) },
+    /** Explicit credential permission, overridden by tests. */
+    private val credentialConsent: (JComponent) -> Boolean = { CredentialAccessConsent.request(it) },
 ) : JPanel(BorderLayout()) {
 
     private val statusLabel = JBLabel(" ").apply { foreground = PiTheme.mutedFg() }
@@ -88,6 +90,7 @@ class ProvidersSettingsPanel(
     }
 
     private fun importAuto() {
+        if (!requestCredentialAccess()) return
         statusLabel.text = PiBundle.message("providers.importing")
         ApplicationManager.getApplication().executeOnPooledThread {
             val outcome = runCatching(autoImporter).getOrElse {
@@ -99,6 +102,7 @@ class ProvidersSettingsPanel(
     }
 
     private fun importDb() {
+        if (!requestCredentialAccess()) return
         val fileChooser = JFileChooser().apply {
             dialogTitle = PiBundle.message("providers.import.db.title")
             fileSelectionMode = JFileChooser.FILES_ONLY
@@ -116,6 +120,12 @@ class ProvidersSettingsPanel(
                 { applyImport(outcome) }, ModalityState.any(),
             )
         }
+    }
+
+    private fun requestCredentialAccess(): Boolean {
+        if (credentialConsent(this)) return true
+        statusLabel.text = PiBundle.message("credentials.consent.denied")
+        return false
     }
 
     private fun applyImport(outcome: CcSwitchImporter.Outcome) {
