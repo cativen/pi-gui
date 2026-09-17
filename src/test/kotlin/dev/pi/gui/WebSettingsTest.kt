@@ -88,6 +88,15 @@ class WebSettingsTest : BasePlatformTestCase() {
         assertEquals(emptySet<String>(), sent - WebSettingsSurface.HANDLED_MESSAGES)
     }
 
+    fun testSkillSearchUsesRepositoryMetadataAndOneDeferredDomSwap() {
+        val js = settingsJs()
+        assertTrue(js.contains("source: button.dataset.source"))
+        assertTrue(js.contains("name: button.dataset.name"))
+        assertTrue(js.contains("window.requestAnimationFrame"))
+        assertTrue(js.contains("host.replaceChildren"))
+        assertFalse("result cards must use delegated events", js.contains("host.querySelectorAll('.install-skill').forEach"))
+    }
+
     fun testEveryNativeEventHasAJavaScriptHandler() {
         val js = settingsJs()
         val body = js.substringAfter("var handlers = {").substringBefore("\n  };")

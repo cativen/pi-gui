@@ -361,13 +361,22 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 .search-results { display: grid; gap: 6px; max-height: 260px; overflow: auto; }
 .search-results.large { max-height: 430px; }
-.search-result { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-width: 0; padding: 10px 11px; border: 1px solid var(--divider); border-radius: 9px; background: var(--input-bg); color: var(--text-fg); text-align: left; }
+.skill-search-results { height: min(430px, calc(100vh - 300px)); min-height: 240px; contain: layout paint; }
+.search-result { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-width: 0; padding: 10px 11px; border: 1px solid var(--divider); border-radius: 9px; background: var(--input-bg); color: var(--text-fg); text-align: left; content-visibility: auto; contain-intrinsic-size: 74px; }
 .search-result > div:first-child { min-width: 0; }
 .search-result code, .search-result small { display: block; color: var(--muted-fg); font: var(--mono); }
 .search-result p { margin: 3px 0; color: var(--muted-fg); font-size: 0.88em; }
 .search-result > div:last-child { display: flex; gap: 6px; }
 .result-button { font: inherit; cursor: pointer; }
 .result-button:hover { border-color: var(--accent-border); }
+.skill-modal-status { min-height: 20px; margin: -5px 0 -3px; color: var(--muted-fg); font-size: 0.86em; white-space: pre-wrap; overflow-wrap: anywhere; }
+.skill-modal-status.busy::before { content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 7px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: settings-spin 700ms linear infinite; }
+.skill-modal-status.error { color: var(--error-fg); }
+.skill-skeleton { display: grid; gap: 6px; }
+.skill-skeleton-row { display: grid; grid-template-columns: 1fr 86px 86px; gap: 9px; min-height: 72px; padding: 12px; border: 1px solid var(--divider); border-radius: 9px; }
+.skill-skeleton-row > * { display: block; align-self: center; height: 12px; border-radius: 6px; background: var(--pill-bg); }
+.skill-skeleton-row i { width: 68%; }
+.skill-skeleton-row span, .skill-skeleton-row b { height: 30px; }
 
 .modal-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 28px; background: rgba(0, 0, 0, 0.52); }
 .modal-backdrop[hidden] { display: none; }

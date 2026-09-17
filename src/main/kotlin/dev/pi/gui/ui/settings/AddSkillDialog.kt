@@ -168,7 +168,7 @@ class AddSkillDialog(private val project: Project?) : DialogWrapper(project, tru
             object : Task.Backgroundable(project, PiBundle.message("skills.installing", selected.id), false) {
                 override fun run(indicator: ProgressIndicator) {
                     indicator.isIndeterminate = true
-                    val outcome = SkillsRegistry.install(selected.id, scope, project?.basePath)
+                    val outcome = SkillsRegistry.install(selected.source, selected.name, scope, project?.basePath)
                     ApplicationManager.getApplication().invokeLater({
                         if (outcome.success) {
                             installedAnything = true

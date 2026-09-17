@@ -142,7 +142,7 @@ class WebSettingsSurface(
             "deleteProvider" -> deleteProvider(text("id"))
             "toggleSkill" -> toggleSkill(text("path"), message["enabled"]?.asBoolean == true)
             "searchSkills" -> searchSkills(text("query"))
-            "installSkill" -> installSkill(text("id"), text("scope"))
+            "installSkill" -> installSkill(text("id"), text("source"), text("name"), text("scope"))
             "refreshMcp" -> reloadMcp()
             "saveMcp" -> saveMcp(message)
             "toggleMcp" -> toggleMcp(text("id"), message["enabled"]?.asBoolean == true)
@@ -359,19 +359,24 @@ class WebSettingsSurface(
         }
     }
 
-    private fun installSkill(id: String, scopeName: String) {
+    private fun installSkill(id: String, sourceValue: String, nameValue: String, scopeName: String) {
         val scope = if (scopeName == SkillScope.PROJECT.name) SkillScope.PROJECT else SkillScope.GLOBAL
-        val target = if (scope == SkillScope.PROJECT) project?.basePath ?: return else PiBundle.message("skills.scope.global")
-        if (!confirm(PiBundle.message("skills.install.confirm", id, target), PiBundle.message("skills.add"))) return
+        if (scope == SkillScope.PROJECT && project?.basePath == null) return
+        val skillName = nameValue.ifBlank { id.substringAfterLast('/') }
+        val source = sourceValue.ifBlank { id.removeSuffix("/$skillName") }
+        if (source.isBlank() || skillName.isBlank()) {
+            status("skills", PiBundle.message("skills.install.invalid"), error = true)
+            return
+        }
         status("skills", PiBundle.message("skills.installing", id), busy = true)
         pooled {
-            val result = SkillsRegistry.install(id, scope, project?.basePath)
+            val result = SkillsRegistry.install(source, skillName, scope, project?.basePath)
             if (result.success) {
                 status("skills", PiBundle.message("skills.install.done", id))
                 reloadSkills()
             } else {
-                status("skills", PiBundle.message("skills.install.failedShort"), error = true)
-                showError(PiBundle.message("skills.install.failed", result.output.takeLast(600)), PiBundle.message("skills.add"))
+                val detail = result.output.ifBlank { PiBundle.message("skills.install.failedShort") }.takeLast(1_200)
+                status("skills", PiBundle.message("skills.install.failed", detail), error = true)
             }
         }
     }
@@ -669,6 +674,7 @@ class WebSettingsSurface(
             "skills.empty", "skills.add", "skills.selectHint", "skills.name", "skills.description",
             "skills.scope.global", "skills.scope.project", "skills.search", "skills.search.placeholder",
             "skills.search.hint", "skills.install.global", "skills.install.project", "skills.install.noProject",
+            "skills.install.warning",
             "mcp.add", "mcp.refresh", "mcp.search.placeholder", "mcp.empty", "mcp.empty.hint",
             "mcp.summary", "mcp.scope.global", "mcp.scope.project", "mcp.status.configured",
             "mcp.status.disabled", "mcp.status.invalid", "mcp.transport", "mcp.lifecycle",

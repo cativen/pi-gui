@@ -54,6 +54,9 @@ object SkillsRegistry {
     private val searchPool = Executors.newCachedThreadPool { runnable ->
         Thread(runnable, "pi-skills-search").apply { isDaemon = true }
     }
+    private val installOutputPool = Executors.newCachedThreadPool { runnable ->
+        Thread(runnable, "pi-skills-install-output").apply { isDaemon = true }
+    }
 
     /**
      * Searches the registry. The first attempt honors the IDE's proxy configuration ([HttpRequests]);
@@ -160,13 +163,14 @@ object SkillsRegistry {
         java.net.URLEncoder.encode(value, Charsets.UTF_8)
 
     /**
-     * Installs a skill via `npx skills add <id> -y --agent pi`.
+     * Installs one result from skills.sh.
      *
-     * A project-scoped install runs with the project as the working directory, which is what makes
-     * the CLI drop the skill into `<project>/.agents/skills` rather than the global directory.
+     * Registry ids have the shape `owner/repository/skill-name`, while the CLI requires the
+     * repository and skill name as separate arguments. Passing the full id as the package makes
+     * the CLI clone a non-skill subdirectory and end with "No valid skills found".
      */
-    fun install(id: String, scope: SkillScope, projectPath: String?): InstallOutcome {
-        val command = mutableListOf(npxExecutable(), "skills", "add", id, "-y", "--agent", "pi")
+    fun install(source: String, skillName: String, scope: SkillScope, projectPath: String?): InstallOutcome {
+        val command = buildInstallCommand(npxExecutable(), source, skillName, scope)
         val workingDir = when (scope) {
             SkillScope.PROJECT -> projectPath?.let(::File)?.takeIf { it.isDirectory }
                 ?: return InstallOutcome(false, "Project directory is not available")
@@ -180,17 +184,53 @@ object SkillsRegistry {
                 .also { it.environment().putAll(PiLocator.shellEnvironment()) }
                 .start()
 
-            val output = process.inputStream.bufferedReader().readText()
+            // Drain concurrently: waiting until after waitFor can deadlock once the pipe fills.
+            val outputFuture = installOutputPool.submit(Callable {
+                process.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            })
             val finished = process.waitFor(5, TimeUnit.MINUTES)
             if (!finished) {
                 process.destroyForcibly()
-                return InstallOutcome(false, "Timed out after 5 minutes\n$output")
+                val output = runCatching { outputFuture.get(2, TimeUnit.SECONDS) }.getOrDefault("")
+                return InstallOutcome(false, sanitizeCliOutput("Timed out after 5 minutes\n$output"))
             }
-            InstallOutcome(process.exitValue() == 0, output.trim())
+            val output = runCatching { outputFuture.get(5, TimeUnit.SECONDS) }.getOrDefault("")
+            InstallOutcome(process.exitValue() == 0, sanitizeCliOutput(output))
         } catch (e: Exception) {
-            LOG.warn("skills install failed for $id", e)
+            LOG.warn("skills install failed for $source --skill $skillName", e)
             InstallOutcome(false, e.message ?: "Install failed")
         }
+    }
+
+    internal fun buildInstallCommand(
+        npx: String,
+        source: String,
+        skillName: String,
+        scope: SkillScope,
+    ): List<String> = buildList {
+        // The first --yes belongs to npx (and must precede the package name), so a clean user
+        // machine never blocks on npx's package-install prompt. The trailing -y belongs to skills.
+        addAll(listOf(npx, "--yes", "skills", "add", source, "--skill", skillName, "--agent", "pi"))
+        if (scope == SkillScope.GLOBAL) add("--global")
+        addAll(listOf("--copy", "--json", "-y"))
+    }
+
+    /** Removes cursor controls/spinners so errors remain readable in the JCEF settings panel. */
+    internal fun sanitizeCliOutput(raw: String): String {
+        val withProgressBreaks = raw.replace(Regex("\\u001B\\[[0-9;?]*[GJKH]"), "\n")
+        val withoutAnsi = withProgressBreaks
+            .replace(Regex("\\u001B\\[[0-?]*[ -/]*[@-~]"), "")
+            .replace(Regex("\\u001B\\][^\\u0007]*(?:\\u0007|\\u001B\\\\)"), "")
+            .replace('\r', '\n')
+        val progress = Regex("^[│◇◆●○◐◓◑◒\\s]*(Cloning repository|Discovering skills|Installing).*$", RegexOption.IGNORE_CASE)
+        val lines = withoutAnsi.lineSequence()
+            .map { it.trimEnd() }
+            .filter { it.isNotBlank() && !progress.matches(it.trim()) }
+            .fold(mutableListOf<String>()) { out, line ->
+                if (out.lastOrNull() != line) out += line
+                out
+            }
+        return lines.joinToString("\n").trim().takeLast(4_000)
     }
 
     /** `npx` sits next to the `node` that pi itself uses, so reuse the discovered PATH. */

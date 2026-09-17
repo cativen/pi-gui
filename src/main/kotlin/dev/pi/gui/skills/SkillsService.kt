@@ -1,6 +1,7 @@
 package dev.pi.gui.skills
 
 import com.intellij.openapi.diagnostic.Logger
+import dev.pi.gui.PiLocator
 import java.io.File
 
 enum class SkillScope { GLOBAL, PROJECT }
@@ -34,14 +35,23 @@ object SkillsService {
 
     fun globalSkillsDir(): File = File(System.getProperty("user.home"), ".agents/skills")
 
+    /** Native Pi location used by `npx skills add --agent pi --global`. */
+    fun piGlobalSkillsDir(): File = File(PiLocator.agentDir(), "skills")
+
     fun projectSkillsDir(projectPath: String?): File? =
         projectPath?.takeIf { it.isNotBlank() }?.let { File(it, ".agents/skills") }
+
+    /** Native Pi location used by `npx skills add --agent pi` in a project. */
+    fun piProjectSkillsDir(projectPath: String?): File? =
+        projectPath?.takeIf { it.isNotBlank() }?.let { File(it, ".pi/skills") }
 
     /** All skills visible to the agent: global first, then any the project adds. */
     fun listSkills(projectPath: String?): List<SkillInfo> {
         val skills = mutableListOf<SkillInfo>()
         skills += scan(globalSkillsDir(), SkillScope.GLOBAL)
+        skills += scan(piGlobalSkillsDir(), SkillScope.GLOBAL)
         projectSkillsDir(projectPath)?.let { skills += scan(it, SkillScope.PROJECT) }
+        piProjectSkillsDir(projectPath)?.let { skills += scan(it, SkillScope.PROJECT) }
         return skills.sortedWith(compareBy({ it.scope }, { it.name.lowercase() }))
     }
 

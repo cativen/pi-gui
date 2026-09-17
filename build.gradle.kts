@@ -113,6 +113,7 @@ intellijPlatform {
               <li>Explain exactly which files and credential fields are accessed and why.</li>
               <li>Keep stored API keys out of the JCEF page and preserve them on blank edits.</li>
               <li>Document credential access and privacy in the Marketplace description.</li>
+              <li>Fix skills.sh global/project installation and smooth search-result rendering.</li>
             </ul>
         """.trimIndent()
         ideaVersion {

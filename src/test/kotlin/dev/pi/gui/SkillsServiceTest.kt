@@ -175,8 +175,11 @@ class SkillsServiceTest {
     fun `project skills directory follows the agents convention`() {
         val dir = SkillsService.projectSkillsDir("/tmp/proj")
         assertEquals(File("/tmp/proj/.agents/skills"), dir)
+        assertEquals(File("/tmp/proj/.pi/skills"), SkillsService.piProjectSkillsDir("/tmp/proj"))
         assertNull(SkillsService.projectSkillsDir(null))
+        assertNull(SkillsService.piProjectSkillsDir(null))
         assertNull(SkillsService.projectSkillsDir(""))
+        assertNull(SkillsService.piProjectSkillsDir(""))
     }
 
     @Test

@@ -5,6 +5,7 @@
   var strings = {};
   var state = { settings: {}, providers: [], skills: [], mcp: [], packages: [], projectAvailable: false };
   var early = [];
+  var skillRenderToken = 0;
 
   function send(message) {
     if (window.__piSend) window.__piSend(JSON.stringify(message));
@@ -131,9 +132,20 @@
       target.textContent = event.message || '';
       target.className = 'inline-status' + (event.busy ? ' busy' : '') + (event.error ? ' error' : '');
       var skillResults = event.area === 'skills' && document.getElementById('skill-results');
-      if (skillResults && event.busy) skillResults.innerHTML = '<div class="resource-empty"><p>' + esc(event.message || '') + '</p></div>';
+      var skillModalStatus = event.area === 'skills' && document.getElementById('skill-modal-status');
+      if (skillModalStatus) {
+        skillModalStatus.textContent = event.message || '';
+        skillModalStatus.className = 'skill-modal-status' + (event.busy ? ' busy' : '') + (event.error ? ' error' : '');
+      }
+      if (skillResults) {
+        skillResults.classList.toggle('is-busy', !!event.busy);
+        if (event.busy && !skillResults.querySelector('.search-result')) {
+          skillResults.innerHTML = skillSearchSkeleton();
+        }
+      }
       document.querySelectorAll('[data-busy-area="' + event.area + '"]').forEach(function (button) {
-        button.disabled = !!event.busy;
+        var unavailableProject = button.dataset.scope === 'PROJECT' && !state.projectAvailable;
+        button.disabled = !!event.busy || unavailableProject;
       });
     },
     saved: function (event) {
@@ -292,20 +304,43 @@
   }
 
   function openSkillSearch() {
-    openModal(t('skills.add'), '<div class="modal-form"><label class="field"><span>' + esc(t('skills.search')) + '</span><div class="input-action"><input id="skill-query" type="search" placeholder="' + esc(t('skills.search.placeholder')) + '"><button id="search-skills" class="button primary">' + esc(t('skills.search')) + '</button></div><small>' + esc(t('skills.search.hint')) + '</small></label><div id="skill-results" class="search-results large"></div></div>');
-    function search() { send({ type: 'searchSkills', query: valueOf('skill-query') }); }
+    openModal(t('skills.add'), '<div class="modal-form skill-search-form"><label class="field"><span>' + esc(t('skills.search')) + '</span><div class="input-action"><input id="skill-query" type="search" placeholder="' + esc(t('skills.search.placeholder')) + '"><button id="search-skills" class="button primary" data-busy-area="skills">' + esc(t('skills.search')) + '</button></div><small>' + esc(t('skills.search.hint')) + '</small></label><small class="modal-hint">' + esc(t('skills.install.warning')) + '</small><div id="skill-modal-status" class="skill-modal-status" aria-live="polite"></div><div id="skill-results" class="search-results large skill-search-results"></div></div>');
+    function search() {
+      var query = valueOf('skill-query').trim();
+      if (query) send({ type: 'searchSkills', query: query });
+    }
     document.getElementById('search-skills').addEventListener('click', search);
     document.getElementById('skill-query').addEventListener('keydown', function (event) { if (event.key === 'Enter') search(); });
+    document.getElementById('skill-results').addEventListener('click', function (event) {
+      var button = event.target.closest('.install-skill');
+      if (!button || button.disabled) return;
+      send({ type: 'installSkill', id: button.dataset.id, source: button.dataset.source, name: button.dataset.name, scope: button.dataset.scope });
+    });
     document.getElementById('skill-query').focus();
   }
 
   function paintSkillResults(items) {
     var host = document.getElementById('skill-results'); if (!host) return;
-    host.innerHTML = items.length ? items.map(function (item) {
-      return '<div class="search-result"><div><strong>' + esc(item.name) + '</strong><code>' + esc(item.id) + '</code><small>' + esc(item.installs) + '</small></div><div><button class="button small install-skill" data-busy-area="skills" data-id="' + esc(item.id) + '" data-scope="GLOBAL">' + esc(t('skills.install.global')) + '</button>' +
-        '<button class="button small install-skill" data-busy-area="skills" data-id="' + esc(item.id) + '" data-scope="PROJECT" ' + (state.projectAvailable ? '' : 'disabled') + '>' + esc(t('skills.install.project')) + '</button></div></div>';
+    var token = ++skillRenderToken;
+    var html = items.length ? items.map(function (item) {
+      return '<div class="search-result"><div><strong>' + esc(item.name) + '</strong><code>' + esc(item.id) + '</code><small>' + esc(item.installs) + '</small></div><div><button class="button small install-skill" data-busy-area="skills" data-id="' + esc(item.id) + '" data-source="' + esc(item.source) + '" data-name="' + esc(item.name) + '" data-scope="GLOBAL">' + esc(t('skills.install.global')) + '</button>' +
+        '<button class="button small install-skill" data-busy-area="skills" data-id="' + esc(item.id) + '" data-source="' + esc(item.source) + '" data-name="' + esc(item.name) + '" data-scope="PROJECT" ' + (state.projectAvailable ? '' : 'disabled') + '>' + esc(t('skills.install.project')) + '</button></div></div>';
     }).join('') : emptyState('⌕', t('skills.search.none'));
-    host.querySelectorAll('.install-skill').forEach(function (button) { button.addEventListener('click', function () { send({ type: 'installSkill', id: button.dataset.id, scope: button.dataset.scope }); }); });
+    // Build off-DOM and swap once on the next frame. Together with content-visibility this keeps
+    // the 30-result response from blocking JCEF painting or flashing a half-laid-out modal.
+    window.requestAnimationFrame(function () {
+      if (token !== skillRenderToken || !host.isConnected) return;
+      var template = document.createElement('template');
+      template.innerHTML = html;
+      host.replaceChildren(template.content.cloneNode(true));
+      host.classList.remove('is-busy');
+    });
+  }
+
+  function skillSearchSkeleton() {
+    return '<div class="skill-skeleton" aria-hidden="true">' + [1, 2, 3, 4].map(function () {
+      return '<div class="skill-skeleton-row"><i></i><span></span><b></b></div>';
+    }).join('') + '</div>';
   }
 
   function paintMcp() {
