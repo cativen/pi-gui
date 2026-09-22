@@ -27,7 +27,9 @@
     context: { label: '', tooltip: '' },
     sessions: [],
     selectedSession: null,
-    sidebarVisible: true
+    sidebarVisible: true,
+    composerSelection: { start: 0, end: 0 },
+    composerRange: null
   };
 
   /*
@@ -43,6 +45,9 @@
     send: '<path d="M15 3 8 10M15 3l-4.5 12L8 10 3 7.5Z"/>',
     stop: '<rect x="5" y="5" width="8" height="8" rx="1.5"/>',
     close: '<path d="m5 5 8 8M13 5l-8 8"/>',
+    folder: '<path d="M2.5 5.5h5l1.5 2h6.5v6.5a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 14Z"/><path d="M2.5 7.5v-2A1.5 1.5 0 0 1 4 4h3l1.5 1.5"/>',
+    file: '<path d="M5 2.5h5l3.5 3.5v9.5H5Z"/><path d="M10 2.5V6h3.5M7.5 9h3.5M7.5 12h3.5"/>',
+    image: '<rect x="2.5" y="3" width="13" height="12" rx="2"/><circle cx="6.5" cy="7" r="1"/><path d="m4.5 13 3-3 2 2 1.5-1.5 2.5 2.5"/>',
     tick: '<path d="M3.5 9l3 3 6-7"/>',
     plus: '<path d="M9 4v10M4 9h10"/>',
     refresh: '<path d="M14.5 9a5.5 5.5 0 1 1-1.6-3.9M14.5 2.5V6H11"/>',
@@ -109,10 +114,14 @@
     });
 
     els.input.addEventListener('input', onInput);
+    els.input.addEventListener('select', rememberComposerSelection);
+    els.input.addEventListener('keyup', rememberComposerSelection);
+    els.input.addEventListener('mouseup', rememberComposerSelection);
     els.input.addEventListener('keydown', onKeyDown);
     els.input.addEventListener('paste', onPaste);
     els.input.addEventListener('focus', function () { els['composer-card'].classList.add('focused'); });
     els.input.addEventListener('blur', function () {
+      rememberComposerSelection();
       els['composer-card'].classList.remove('focused');
       hidePopup();
     });
@@ -247,7 +256,7 @@
 
     i18n: function (e) {
       strings = e.strings || {};
-      els.input.placeholder = t('placeholder');
+      els.input.dataset.placeholder = t('placeholder');
       var activityLabel = els.activity && els.activity.querySelector('.sr-only');
       if (activityLabel) activityLabel.textContent = t('working');
       paintPills();
@@ -379,10 +388,22 @@
       els.attachments.innerHTML = '';
       items.forEach(function (it) {
         var chip = document.createElement('span');
-        chip.className = 'chip';
+        chip.className = 'chip chip-' + (it.kind || 'file');
+        var mark = document.createElement('span');
+        mark.className = 'chip-icon';
+        mark.innerHTML = icon(it.kind === 'folder' ? 'folder' : (it.kind === 'image' ? 'image' : 'file'));
         var label = document.createElement('span');
+        label.className = 'chip-name';
         label.textContent = it.name;
         label.title = it.name;
+        chip.appendChild(mark);
+        chip.appendChild(label);
+        if (it.lineRange) {
+          var range = document.createElement('span');
+          range.className = 'chip-range';
+          range.textContent = it.lineRange;
+          chip.appendChild(range);
+        }
         var x = document.createElement('button');
         x.type = 'button';
         x.innerHTML = icon('close');
@@ -391,11 +412,15 @@
         x.addEventListener('click', function () {
           send({ type: 'removeAttachment', id: it.id });
         });
-        chip.appendChild(label);
         chip.appendChild(x);
         els.attachments.appendChild(chip);
       });
       updateSendState();
+    },
+
+    /** Context-menu file references belong to the prose, at the caret, not in the attachment row. */
+    pathReferences: function (e) {
+      insertPathReferences(e.items || []);
     },
 
     commands: function (e) {
@@ -405,25 +430,28 @@
 
     /** Composer text set by the plugin: @mention insertion, and clearing after a send. */
     composer: function (e) {
-      els.input.value = e.text || '';
+      setComposerText(e.text || '');
+      var length = composerText().length;
+      state.composerSelection.start = state.composerSelection.end = length;
+      state.composerRange = null;
       autoGrow();
       updateSendState();
       hidePopup();
       if (e.focus) els.input.focus();
     },
 
-    /** "Send path to Pi GUI" drops an @mention in without disturbing what is already typed. */
+    /** Generic external text insertion: splice at the selection saved before the IDE took focus. */
     appendComposer: function (e) {
-      var current = els.input.value;
-      var sep = (current && !/\s$/.test(current)) ? ' ' : '';
-      els.input.value = current + sep + (e.text || '') + ' ';
-      els.input.selectionStart = els.input.selectionEnd = els.input.value.length;
+      insertPlainTextAtSavedCaret(e.text || '');
       autoGrow();
       updateSendState();
       els.input.focus();
     },
 
-    focusInput: function () { els.input.focus(); }
+    focusInput: function () {
+      els.input.focus();
+      restoreComposerSelection();
+    }
   };
 
   // ------------------------------------------------------------------- shell
@@ -642,19 +670,196 @@
     els.input.style.height = Math.min(Math.max(els.input.scrollHeight, 42), 180) + 'px';
   }
 
+  /** The visible chip label is deliberately short; this is the exact prompt text behind it. */
+  function serializeComposerNode(node) {
+    if (!node) return '';
+    if (node.nodeType === Node.TEXT_NODE) return (node.nodeValue || '').replace(/\u00a0/g, ' ');
+    if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return '';
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      if (node.classList.contains('inline-ref')) return node.dataset.mention || '';
+      if (node.tagName === 'BR') return '\n';
+    }
+    var out = '';
+    for (var child = node.firstChild; child; child = child.nextSibling) out += serializeComposerNode(child);
+    return out;
+  }
+
+  function composerText() {
+    return serializeComposerNode(els.input);
+  }
+
+  function setComposerText(text) {
+    if (text) els.input.replaceChildren(document.createTextNode(text));
+    else els.input.replaceChildren();
+  }
+
+  function rangeInsideComposer(range) {
+    return !!range && els.input.contains(range.startContainer) && els.input.contains(range.endContainer);
+  }
+
+  function selectionRange() {
+    var selection = window.getSelection();
+    if (selection && selection.rangeCount) {
+      var range = selection.getRangeAt(0);
+      if (rangeInsideComposer(range)) return range;
+    }
+    return null;
+  }
+
+  function composerOffsetAt(container, offset) {
+    var range = document.createRange();
+    range.selectNodeContents(els.input);
+    try { range.setEnd(container, offset); } catch (ignored) { return composerText().length; }
+    return serializeComposerNode(range.cloneContents()).length;
+  }
+
+  function rangeAtComposerEnd() {
+    var range = document.createRange();
+    range.selectNodeContents(els.input);
+    range.collapse(false);
+    return range;
+  }
+
+  function useSavedRange() {
+    if (rangeInsideComposer(state.composerRange)) return state.composerRange.cloneRange();
+    return rangeAtComposerEnd();
+  }
+
+  function placeCaretAfter(node) {
+    var range = document.createRange();
+    range.setStartAfter(node);
+    range.collapse(true);
+    var selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    state.composerRange = range.cloneRange();
+    var offset = composerOffsetAt(range.startContainer, range.startOffset);
+    state.composerSelection.start = state.composerSelection.end = offset;
+  }
+
+  function prefixForRange(range) {
+    var prefix = document.createRange();
+    prefix.selectNodeContents(els.input);
+    prefix.setEnd(range.startContainer, range.startOffset);
+    return serializeComposerNode(prefix.cloneContents());
+  }
+
+  function suffixForRange(range) {
+    var suffix = document.createRange();
+    suffix.selectNodeContents(els.input);
+    suffix.setStart(range.endContainer, range.endOffset);
+    return serializeComposerNode(suffix.cloneContents());
+  }
+
+  function insertPlainTextAtSavedCaret(text) {
+    if (!text) return;
+    var range = useSavedRange();
+    var before = prefixForRange(range);
+    var after = suffixForRange(range);
+    var inserted = (before && !/\s$/.test(before) ? ' ' : '') + text +
+      (after && !/^\s/.test(after) ? ' ' : '');
+    range.deleteContents();
+    var node = document.createTextNode(inserted);
+    range.insertNode(node);
+    placeCaretAfter(node);
+  }
+
+  function pathReferenceChip(item) {
+    var chip = document.createElement('span');
+    chip.className = 'inline-ref inline-ref-' + (item.kind || 'file');
+    chip.contentEditable = 'false';
+    chip.dataset.mention = '@' + (item.mention || '');
+    chip.title = item.mention || item.name || '';
+
+    var mark = document.createElement('span');
+    mark.className = 'inline-ref-icon';
+    mark.innerHTML = icon(item.kind === 'folder' ? 'folder' : 'file');
+    chip.appendChild(mark);
+
+    var name = document.createElement('span');
+    name.className = 'inline-ref-name';
+    name.textContent = item.name || item.mention || '';
+    chip.appendChild(name);
+
+    if (item.lineRange) {
+      var lines = document.createElement('span');
+      lines.className = 'inline-ref-range';
+      lines.textContent = item.lineRange;
+      chip.appendChild(lines);
+    }
+
+    var remove = document.createElement('button');
+    remove.type = 'button';
+    remove.innerHTML = icon('close');
+    remove.title = t('removeAttachment');
+    remove.setAttribute('aria-label', t('removeAttachment') + ': ' + (item.name || ''));
+    remove.addEventListener('mousedown', function (event) { event.preventDefault(); });
+    remove.addEventListener('click', function () {
+      var next = chip.nextSibling;
+      chip.remove();
+      if (next && next.nodeType === Node.TEXT_NODE && /^\s/.test(next.nodeValue || '')) {
+        next.nodeValue = (next.nodeValue || '').replace(/^\s/, '');
+      }
+      onInput();
+      els.input.focus();
+    });
+    chip.appendChild(remove);
+    return chip;
+  }
+
+  function insertPathReferences(items) {
+    if (!items.length) return;
+    var range = useSavedRange();
+    var before = prefixForRange(range);
+    var after = suffixForRange(range);
+    range.deleteContents();
+
+    var fragment = document.createDocumentFragment();
+    if (before && !/\s$/.test(before)) fragment.appendChild(document.createTextNode(' '));
+    items.forEach(function (item, index) {
+      if (index) fragment.appendChild(document.createTextNode(' '));
+      fragment.appendChild(pathReferenceChip(item));
+    });
+    var tail = document.createTextNode(' ');
+    fragment.appendChild(tail);
+    range.insertNode(fragment);
+    placeCaretAfter(tail);
+    autoGrow();
+    updateSendState();
+    els.input.focus();
+  }
+
   function onInput() {
+    rememberComposerSelection();
     autoGrow();
     updateSendState();
     updatePopup();
   }
 
+  function rememberComposerSelection() {
+    if (!els.input) return;
+    var range = selectionRange();
+    if (!range) return;
+    state.composerRange = range.cloneRange();
+    state.composerSelection.start = composerOffsetAt(range.startContainer, range.startOffset);
+    state.composerSelection.end = composerOffsetAt(range.endContainer, range.endOffset);
+  }
+
+  function restoreComposerSelection() {
+    if (!els.input) return;
+    var range = useSavedRange();
+    var selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
   function updateSendState() {
     if (!els.send || !els.input || !els.attachments) return;
-    els.send.disabled = !els.input.value.trim() && els.attachments.hidden;
+    els.send.disabled = !composerText().trim() && els.attachments.hidden;
   }
 
   function doSend() {
-    var text = els.input.value.trim();
+    var text = composerText().trim();
     if (!text && els.attachments.hidden) return;
     hidePopup();
     send({ type: 'send', text: text });
@@ -675,6 +880,10 @@
     if (wantsSend) {
       doSend();
       e.preventDefault();
+    } else {
+      // Keep the editable DOM predictable: line breaks are BR nodes, never browser-specific DIVs.
+      document.execCommand('insertLineBreak');
+      e.preventDefault();
     }
   }
 
@@ -687,6 +896,12 @@
         e.preventDefault();
         return;
       }
+    }
+    // JCEF otherwise pastes arbitrary rich HTML into the contenteditable composer.
+    var text = e.clipboardData && e.clipboardData.getData('text/plain');
+    if (text != null) {
+      document.execCommand('insertText', false, text);
+      e.preventDefault();
     }
   }
 
@@ -725,9 +940,10 @@
 
   /** pi only treats `/name` as a command at the very start of the message. */
   function commandQuery() {
-    var v = els.input.value;
+    var v = composerText();
     if (v.charAt(0) !== '/') return null;
-    var caret = els.input.selectionStart;
+    var range = selectionRange();
+    var caret = range ? composerOffsetAt(range.startContainer, range.startOffset) : state.composerSelection.start;
     var token = v.slice(1).split(/\s/)[0];
     if (caret > token.length + 1) return null;
     return token.slice(0, Math.max(0, caret - 1));
@@ -806,12 +1022,17 @@
   function accept() {
     var cmd = state.filtered[state.selected];
     if (!cmd) return false;
-    var v = els.input.value;
+    var v = composerText();
     var token = v.slice(1).split(/\s/)[0];
     var rest = v.slice(1 + token.length).replace(/^\s+/, '');
-    els.input.value = '/' + cmd.name + ' ' + rest;
-    var caret = cmd.name.length + 2;
-    els.input.selectionStart = els.input.selectionEnd = caret;
+    setComposerText('/' + cmd.name + ' ' + rest);
+    var caret = document.createRange();
+    caret.setStart(els.input.firstChild, Math.min(cmd.name.length + 2, els.input.firstChild.length));
+    caret.collapse(true);
+    var selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(caret);
+    state.composerRange = caret.cloneRange();
     hidePopup();
     autoGrow();
     return true;

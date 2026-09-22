@@ -60,7 +60,7 @@ class AttachmentStrip(
             }
         }.apply {
             isOpaque = false
-            border = JBUI.Borders.empty(4, 6)
+            border = JBUI.Borders.empty(1, 4)
             toolTipText = tooltipFor(attachment)
         }
 
@@ -70,7 +70,7 @@ class AttachmentStrip(
     }
 
     private fun contentFor(attachment: Attachment): JPanel {
-        val holder = JPanel(BorderLayout(JBUI.scale(5), 0)).apply { isOpaque = false }
+        val holder = JPanel(BorderLayout(JBUI.scale(4), 0)).apply { isOpaque = false }
 
         when (attachment) {
             is Attachment.Image -> {
@@ -85,11 +85,10 @@ class AttachmentStrip(
 
             is Attachment.FileRef -> {
                 holder.add(
-                    JBLabel(attachment.extensionLabel).apply {
+                    JBLabel().apply {
                         icon = if (attachment.isDirectory) AllIcons.Nodes.Folder else AllIcons.FileTypes.Text
-                        font = font.deriveFont(font.size2D - 2f)
                         foreground = PiTheme.mutedFg()
-                        preferredSize = Dimension(JBUI.scale(52), JBUI.scale(28))
+                        preferredSize = Dimension(JBUI.scale(16), JBUI.scale(18))
                     },
                     BorderLayout.WEST,
                 )
@@ -103,6 +102,16 @@ class AttachmentStrip(
             },
             BorderLayout.CENTER,
         )
+        (attachment as? Attachment.FileRef)?.lineLabel?.let { range ->
+            holder.add(
+                JBLabel(range).apply {
+                    font = font.deriveFont(font.size2D - 2f)
+                    foreground = PiTheme.accent
+                    border = JBUI.Borders.emptyLeft(5)
+                },
+                BorderLayout.EAST,
+            )
+        }
         return holder
     }
 

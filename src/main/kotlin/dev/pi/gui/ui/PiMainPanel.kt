@@ -14,6 +14,7 @@ import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.ui.OnePixelSplitter
 import dev.pi.gui.i18n.PiBundle
+import dev.pi.gui.model.Attachment
 import dev.pi.gui.settings.PiSettings
 import dev.pi.gui.ui.settings.PiSettingsDialog
 import dev.pi.gui.ui.settings.WebSettingsSurface
@@ -211,6 +212,12 @@ class PiMainPanel(private val project: Project) : JPanel(BorderLayout()), Dispos
     fun appendToInput(text: String) {
         showChat()
         chat.appendToInput(text)
+    }
+
+    /** Show file/folder context actions as inline tokens at the composer's saved caret. */
+    fun addPathReferences(references: List<Attachment.FileRef>) {
+        showChat()
+        chat.addPathReferences(references)
     }
 
     private fun showSettings() {

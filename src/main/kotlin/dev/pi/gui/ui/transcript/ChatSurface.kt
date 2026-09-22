@@ -36,6 +36,9 @@ interface ChatSurface : TranscriptSurface {
      */
     fun appendComposerText(text: String)
 
+    /** Insert file references as inline tokens at the caret last used in the composer. */
+    fun insertPathReferences(items: List<PathReference>)
+
     fun focusComposer()
 
     /** Stop button visible, compact disabled: a turn is in flight. */
@@ -98,7 +101,19 @@ interface ChatSurface : TranscriptSurface {
 
     // --------------------------------------------------------------- types
 
-    data class Attachment(val id: String, val name: String)
+    data class Attachment(
+        val id: String,
+        val name: String,
+        val kind: String = "file",
+        val lineRange: String? = null,
+    )
+
+    data class PathReference(
+        val name: String,
+        val mention: String,
+        val kind: String = "file",
+        val lineRange: String? = null,
+    )
 
     data class Command(val name: String, val description: String)
 

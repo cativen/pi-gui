@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "dev.pi"
-version = "1.0.2"
+version = "1.0.3"
 
 repositories {
     mavenCentral()
@@ -106,6 +106,13 @@ intellijPlatform {
             <p><code>npm i -g @earendil-works/pi-coding-agent</code></p>
         """.trimIndent()
         changeNotes = """
+            <h4>1.0.3</h4>
+            <p>Improves file and folder references in the chat composer.</p>
+            <ul>
+              <li>Show files, folders, and selected line ranges as compact attachment chips.</li>
+              <li>Keep raw file paths out of the visible composer.</li>
+              <li>Preserve the user's caret and selection when sending a path to Pi GUI.</li>
+            </ul>
             <h4>1.0.2</h4>
             <p>Adds explicit, fail-closed permission handling for local AI credentials.</p>
             <ul>

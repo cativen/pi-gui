@@ -9,6 +9,7 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.ToolWindowManager
+import dev.pi.gui.model.Attachment
 import dev.pi.gui.ui.PiToolWindowFactory
 
 /**
@@ -19,7 +20,7 @@ import dev.pi.gui.ui.PiToolWindowFactory
  */
 class SendPathToPiAction : AnAction(), DumbAware {
 
-    private data class Target(val label: String, val mentions: String)
+    private data class Target(val label: String, val references: List<Attachment.FileRef>)
 
     /**
      * BGT, and it has to be.
@@ -49,7 +50,7 @@ class SendPathToPiAction : AnAction(), DumbAware {
         // the very first time the tool window is opened.
         toolWindow.activate {
             PiToolWindowFactory.findPanel(project)?.let { panel ->
-                panel.appendToInput(target.mentions)
+                panel.addPathReferences(target.references)
                 panel.focusInput()
             }
         }
@@ -70,10 +71,9 @@ class SendPathToPiAction : AnAction(), DumbAware {
             val document = editor.document
             val startLine = document.getLineNumber(editor.selectionModel.selectionStart) + 1
             val endLine = document.getLineNumber(editor.selectionModel.selectionEnd) + 1
-            val range = if (startLine == endLine) ":$startLine" else ":$startLine-$endLine"
             return Target(
                 "Send Selection Path to Pi GUI",
-                "@${mentionPath(editorFile, base)}$range",
+                listOf(referenceFor(editorFile, base, startLine, endLine)),
             )
         }
 
@@ -86,7 +86,28 @@ class SendPathToPiAction : AnAction(), DumbAware {
             files.first().isDirectory -> "Send Folder Path to Pi GUI"
             else -> "Send File Path to Pi GUI"
         }
-        return Target(label, files.joinToString(" ") { "@" + mentionPath(it, base) })
+        return Target(label, files.map { referenceFor(it, base) })
+    }
+
+    internal fun referenceFor(
+        file: VirtualFile,
+        basePath: String?,
+        lineStart: Int? = null,
+        lineEnd: Int? = null,
+    ): Attachment.FileRef {
+        val range = lineStart?.let { start ->
+            val end = lineEnd ?: start
+            if (end == start) ":$start" else ":$start-$end"
+        }.orEmpty()
+        return Attachment.FileRef(
+            displayName = file.name,
+            absolutePath = file.path,
+            mentionPath = mentionPath(file, basePath) + range,
+            isDirectory = file.isDirectory,
+            byteSize = if (file.isDirectory) 0 else file.length,
+            lineStart = lineStart,
+            lineEnd = lineEnd,
+        )
     }
 
     /**

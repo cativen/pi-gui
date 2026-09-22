@@ -31,12 +31,21 @@ sealed class Attachment {
         val mentionPath: String,
         val isDirectory: Boolean,
         val byteSize: Long,
+        /** Selected source lines, when the reference came from an editor selection. */
+        val lineStart: Int? = null,
+        val lineEnd: Int? = null,
     ) : Attachment() {
         val extensionLabel: String
             get() = when {
                 isDirectory -> "DIR"
                 else -> displayName.substringAfterLast('.', "").uppercase().take(5)
                     .ifEmpty { "FILE" }
+            }
+
+        val lineLabel: String?
+            get() = lineStart?.let { start ->
+                val end = lineEnd ?: start
+                if (end == start) "Line $start" else "Line $start–$end"
             }
     }
 

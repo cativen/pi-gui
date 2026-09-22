@@ -942,24 +942,40 @@ pre.code {
   background: linear-gradient(180deg, transparent 0, var(--chat-bg) 18px);
 }
 
-.attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.attachments { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
 .attachments[hidden] { display: none; }
 .chip {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  max-width: min(330px, 100%);
   background: var(--pill-bg);
   border: 1px solid var(--border);
+  border-radius: 5px;
+  min-height: 22px;
+  padding: 1px 3px 1px 5px;
+  font-size: 0.76em;
+  line-height: 1.2;
+}
+.chip-icon { display: grid; place-items: center; flex: 0 0 auto; color: var(--accent); }
+.chip-icon svg { width: 11px; height: 11px; }
+.chip-folder .chip-icon { color: var(--accent); }
+.chip-file .chip-icon { color: var(--accent); }
+.chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip-range {
+  flex: 0 0 auto;
+  padding: 1px 5px;
   border-radius: 999px;
-  min-height: 30px;
-  padding: 3px 5px 3px 10px;
-  font-size: 0.85em;
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-size: 0.92em;
+  font-variant-numeric: tabular-nums;
 }
 .chip button {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   background: transparent;
   border: 0;
@@ -967,7 +983,7 @@ pre.code {
   color: var(--muted-fg);
   cursor: pointer;
 }
-.chip button svg { width: 15px; height: 15px; }
+.chip button svg { width: 10px; height: 10px; }
 .chip button:hover { background: var(--pill-hover-bg); color: var(--text-fg); }
 
 /*
@@ -993,7 +1009,6 @@ pre.code {
   background: transparent;
   border: none;
   outline: none;
-  resize: none;
   display: block;
   color: var(--text-fg);
   font: var(--font);
@@ -1003,8 +1018,61 @@ pre.code {
   /* Grows with the message; capped so the transcript keeps its room. */
   max-height: 180px;
   overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
-#input::placeholder { color: var(--muted-fg); opacity: 0.78; }
+#input:empty::before {
+  content: attr(data-placeholder);
+  color: var(--muted-fg);
+  opacity: 0.78;
+  pointer-events: none;
+}
+
+/* File references inserted from the IDE live in the sentence at the saved caret. */
+.inline-ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: min(260px, 70%);
+  min-height: 20px;
+  margin: 1px 2px;
+  padding: 0 2px 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--pill-bg);
+  color: var(--text-fg);
+  font-size: 0.78em;
+  line-height: 18px;
+  vertical-align: baseline;
+  white-space: nowrap;
+  user-select: all;
+}
+.inline-ref-icon { display: inline-grid; place-items: center; color: var(--accent); }
+.inline-ref-icon svg { width: 10px; height: 10px; }
+.inline-ref-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.inline-ref-range {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-size: 0.92em;
+  font-variant-numeric: tabular-nums;
+}
+.inline-ref button {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-fg);
+  cursor: pointer;
+}
+.inline-ref button svg { width: 9px; height: 9px; }
+.inline-ref button:hover { background: var(--pill-hover-bg); color: var(--text-fg); }
 
 #controls {
   display: flex;

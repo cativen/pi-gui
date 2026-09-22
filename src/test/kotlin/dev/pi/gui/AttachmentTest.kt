@@ -12,6 +12,16 @@ import java.util.Base64
 
 class AttachmentTest {
 
+    @Test
+    fun `selected file references expose a compact line label`() {
+        val ref = Attachment.FileRef(
+            "Mapper.xml", "/tmp/Mapper.xml", "Mapper.xml:50-88", false, 10,
+            lineStart = 50, lineEnd = 88,
+        )
+
+        assertEquals("Line 50–88", ref.lineLabel)
+    }
+
     @get:Rule
     val tmp = TemporaryFolder()
 

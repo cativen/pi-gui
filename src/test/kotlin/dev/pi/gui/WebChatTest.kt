@@ -67,6 +67,12 @@ class WebChatTest : BasePlatformTestCase() {
         assertTrue("conversation containers must shrink inside narrow tool windows", css.contains("min-width: 0"))
     }
 
+    fun testComposerUsesOnlyTheOuterFocusRing() {
+        val css = chatCss()
+        assertFalse("contenteditable must not draw a rectangular inner focus ring", css.contains("#input:focus-visible"))
+        assertTrue("the rounded composer still needs a visible focus state", css.contains("#composer-card.focused"))
+    }
+
     /** A live reply is re-rendered frequently, so an entry fade here would restart every flush. */
     fun testStreamingMessageDoesNotReplayTheEntryAnimation() {
         val css = chatCss()
@@ -89,6 +95,51 @@ class WebChatTest : BasePlatformTestCase() {
         assertTrue("copy must use the exact source text", js.contains("source.textContent"))
         assertTrue("copy action needs a stable success state", js.contains("classList.add('copied')"))
         assertTrue("copy feedback should reset", js.contains("__copyResetTimer"))
+    }
+
+    fun testPathReferencesAreInlineAndRestoreTheSavedCaret() {
+        val js = chatJs()
+        val css = chatCss()
+
+        assertTrue("path references need a dedicated inline event", js.contains("pathReferences: function"))
+        assertTrue("file and folder tokens need distinct icons", js.contains("inline-ref-icon") && js.contains("'folder'"))
+        assertTrue("selection range needs its own badge", js.contains("inline-ref-range") && js.contains("item.lineRange"))
+        assertTrue("the exact hidden mention must be serialized", js.contains("node.dataset.mention"))
+        assertTrue("focus must restore the selection saved before leaving Pi", js.contains("restoreComposerSelection()"))
+        assertTrue("references must use the range saved before IDE focus", js.contains("useSavedRange()"))
+        assertTrue("inline tokens should be compact", css.contains(".inline-ref") && css.contains("min-height: 20px"))
+    }
+
+    fun testPathReferenceMetadataReachesTheWebPage() {
+        val page = RecordingPage()
+        val surface = surface(page)
+        try {
+            surface.insertPathReferences(
+                listOf(ChatSurface.PathReference("Mapper.xml", "src/Mapper.xml:50-88", "file", "Line 50–88"))
+            )
+            @Suppress("UNCHECKED_CAST")
+            val item = (page.last("pathReferences")!!["items"] as List<Map<String, Any?>>).single()
+            assertEquals("src/Mapper.xml:50-88", item["mention"])
+            assertEquals("Line 50–88", item["lineRange"])
+        } finally {
+            surface.dispose()
+        }
+    }
+
+    fun testAttachmentMetadataReachesTheWebPage() {
+        val page = RecordingPage()
+        val surface = surface(page)
+        try {
+            surface.setAttachments(
+                listOf(ChatSurface.Attachment("ref-1", "Mapper.xml", "file", "Line 50–88"))
+            )
+            @Suppress("UNCHECKED_CAST")
+            val item = (page.last("attachments")!!["items"] as List<Map<String, Any?>>).single()
+            assertEquals("file", item["kind"])
+            assertEquals("Line 50–88", item["lineRange"])
+        } finally {
+            surface.dispose()
+        }
     }
 
     // ------------------------------------------------------- plugin → the page
@@ -325,6 +376,9 @@ class WebChatTest : BasePlatformTestCase() {
 
         surface.setComposerText("draft", focus = true)
         surface.appendComposerText("@file.kt")
+        surface.insertPathReferences(
+            listOf(ChatSurface.PathReference("Main.kt", "src/Main.kt:10-20", "file", "Line 10–20"))
+        )
         surface.focusComposer()
         surface.setRunning(true)
         surface.setRunning(false)

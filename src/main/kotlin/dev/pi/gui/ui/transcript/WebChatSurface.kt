@@ -227,6 +227,24 @@ class WebChatSurface(
         view.requestBrowserFocus()
     }
 
+    override fun insertPathReferences(items: List<ChatSurface.PathReference>) {
+        if (items.isEmpty()) return
+        view.post(
+            mapOf(
+                "type" to "pathReferences",
+                "items" to items.map {
+                    mapOf(
+                        "name" to it.name,
+                        "mention" to it.mention,
+                        "kind" to it.kind,
+                        "lineRange" to it.lineRange,
+                    )
+                },
+            )
+        )
+        view.requestBrowserFocus()
+    }
+
     override fun focusComposer() {
         view.post(mapOf("type" to "focusInput"))
         view.requestBrowserFocus()
@@ -240,7 +258,14 @@ class WebChatSurface(
         view.post(
             mapOf(
                 "type" to "attachments",
-                "items" to items.map { mapOf("id" to it.id, "name" to it.name) },
+                "items" to items.map {
+                    mapOf(
+                        "id" to it.id,
+                        "name" to it.name,
+                        "kind" to it.kind,
+                        "lineRange" to it.lineRange,
+                    )
+                },
             )
         )
     }

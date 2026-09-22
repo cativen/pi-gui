@@ -159,6 +159,28 @@ class UiRenderingTest : BasePlatformTestCase() {
         }
     }
 
+    fun testPathReferencesInsertAtTheSwingCaretInsteadOfTheTop() {
+        val panel = dev.pi.gui.ui.ChatPanel(project)
+        try {
+            val input = panel.inputForTest()
+            input.text = "解释这段代码，下面还能优化"
+            input.caretPosition = "解释这段代码，".length
+            panel.addPathReferences(
+                listOf(
+                    dev.pi.gui.model.Attachment.FileRef(
+                        "Mapper.xml", "/tmp/Mapper.xml", "Mapper.xml:50-88", false, 10,
+                        lineStart = 50, lineEnd = 88,
+                    )
+                )
+            )
+
+            assertEquals("解释这段代码， @Mapper.xml:50-88 下面还能优化", panel.composerText())
+            assertTrue(panel.attachmentsForTest().isEmpty())
+        } finally {
+            panel.dispose()
+        }
+    }
+
     fun testChatCanvasUsesTheDarkSurface() {
         val panel = dev.pi.gui.ui.ChatPanel(project)
         try {

@@ -110,6 +110,16 @@ class SendPathActionTest : BasePlatformTestCase() {
         assertEquals("Send Selection Path to Pi GUI", presentation.text)
     }
 
+    fun testSelectionReferenceKeepsItsLinesAsAttachmentMetadata() {
+        val file = myFixture.addFileToProject("src/Mapper.xml", "x").virtualFile
+        val base = file.path.removeSuffix("/src/Mapper.xml")
+        val ref = SendPathToPiAction().referenceFor(file, base, 50, 88)
+
+        assertEquals("Mapper.xml", ref.displayName)
+        assertEquals("src/Mapper.xml:50-88", ref.mentionPath)
+        assertEquals("Line 50–88", ref.lineLabel)
+    }
+
     fun testHiddenWithoutAnyTarget() {
         val context = SimpleDataContext.builder()
             .add(CommonDataKeys.PROJECT, project)

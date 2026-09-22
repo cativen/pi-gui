@@ -838,7 +838,19 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
 
     private fun pushAttachments() {
         surface.setAttachments(
-            attachments.map { ChatSurface.Attachment(attachmentId(it), it.displayName) }
+            attachments.map { attachment ->
+                when (attachment) {
+                    is Attachment.Image -> ChatSurface.Attachment(
+                        attachmentId(attachment), attachment.displayName, "image",
+                    )
+                    is Attachment.FileRef -> ChatSurface.Attachment(
+                        attachmentId(attachment),
+                        attachment.displayName,
+                        if (attachment.isDirectory) "folder" else "file",
+                        attachment.lineLabel,
+                    )
+                }
+            }
         )
         revalidate()
         repaint()
@@ -2567,15 +2579,24 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         }
 
         override fun appendComposerText(text: String) {
-            val existing = input.text
-            val needsSpace = existing.isNotEmpty() && !existing.last().isWhitespace()
-            input.text = buildString {
-                append(existing)
-                if (needsSpace) append(' ')
-                append(text)
-                append(' ')
-            }
-            input.caretPosition = input.text.length
+            insertTextAtCaret(text)
+        }
+
+        override fun insertPathReferences(items: List<ChatSurface.PathReference>) {
+            items.forEach { insertTextAtCaret("@${it.mention}") }
+        }
+
+        private fun insertTextAtCaret(text: String) {
+            if (text.isBlank()) return
+            val start = input.selectionStart.coerceIn(0, input.text.length)
+            val end = input.selectionEnd.coerceIn(start, input.text.length)
+            val before = input.text.substring(0, start)
+            val after = input.text.substring(end)
+            val left = if (before.isNotEmpty() && !before.last().isWhitespace()) " " else ""
+            val right = if (after.isNotEmpty() && !after.first().isWhitespace()) " " else ""
+            val inserted = left + text + right
+            input.replaceRange(inserted, start, end)
+            input.caretPosition = start + inserted.length
         }
 
         override fun focusComposer() { input.requestFocusInWindow() }
@@ -2717,6 +2738,20 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     fun appendToInput(text: String) {
         if (text.isBlank()) return
         surface.appendComposerText(text)
+    }
+
+    /** Adds context-menu paths as inline tokens at the caret saved before the IDE took focus. */
+    fun addPathReferences(references: List<Attachment.FileRef>) {
+        surface.insertPathReferences(
+            references.map {
+                ChatSurface.PathReference(
+                    name = it.displayName,
+                    mention = it.mentionPath,
+                    kind = if (it.isDirectory) "folder" else "file",
+                    lineRange = it.lineLabel,
+                )
+            }
+        )
     }
 
     fun currentSession(): SessionInfo? = session
