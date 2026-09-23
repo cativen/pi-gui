@@ -74,6 +74,8 @@ intellijPlatform {
               <li><b>Providers, models and thinking level</b> &mdash; switched from the composer.</li>
               <li><b>Send file path</b> &mdash; right-click any file, folder or selection to drop
                   it into the composer as an <code>@mention</code>.</li>
+              <li><b>Console selection</b> &mdash; right-click selected console output to insert it
+                  at the current composer caret.</li>
             </ul>
 
             <p>Available in English, Simplified Chinese and Traditional Chinese.</p>
@@ -102,8 +104,11 @@ intellijPlatform {
 
             <h4>Requirements</h4>
             <p>The <code>pi</code> CLI must be installed and authenticated on your machine; this
-            plugin drives it, it does not bundle or replace it:</p>
-            <p><code>npm i -g @earendil-works/pi-coding-agent</code></p>
+            plugin drives it, it does not bundle or replace it. The pi CLI settings page detects
+            an existing installation and, with explicit confirmation, can run the installer
+            published by pi.dev:</p>
+            <p>macOS/Linux: <code>curl -fsSL https://pi.dev/install.sh | sh</code><br/>
+            Windows: <code>powershell -c &quot;irm https://pi.dev/install.ps1 | iex&quot;</code></p>
         """.trimIndent()
         changeNotes = """
             <h4>1.0.3</h4>
@@ -112,6 +117,9 @@ intellijPlatform {
               <li>Show files, folders, and selected line ranges as compact attachment chips.</li>
               <li>Keep raw file paths out of the visible composer.</li>
               <li>Preserve the user's caret and selection when sending a path to Pi GUI.</li>
+              <li>Add selected console output to the composer from its context menu.</li>
+              <li>Detect pi CLI and offer a confirmed one-click install using pi.dev's official command.</li>
+              <li>Make the user-message copy control compact and icon-only.</li>
             </ul>
             <h4>1.0.2</h4>
             <p>Adds explicit, fail-closed permission handling for local AI credentials.</p>

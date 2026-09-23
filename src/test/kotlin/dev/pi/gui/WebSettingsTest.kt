@@ -71,14 +71,31 @@ class WebSettingsTest : BasePlatformTestCase() {
         assertTrue("MCP must precede Plugins", plugins > mcp)
     }
 
-    fun testCommitAiNavigationSitsBetweenPluginsAndCli() {
+    fun testCliNavigationSitsImmediatelyAfterGeneralAndBeforeProviders() {
+        val js = settingsJs()
+        val general = js.indexOf("['general', 'general', 'settings.tab.general']")
+        val cli = js.indexOf("['cli', 'terminal', 'settings.tab.cli']")
+        val providers = js.indexOf("['providers', 'provider', 'settings.tab.providers']")
+        assertTrue("General tab missing", general >= 0)
+        assertTrue("pi CLI must follow General", cli > general)
+        assertTrue("Model Providers must follow pi CLI", providers > cli)
+    }
+
+    fun testCommitAiNavigationStillFollowsPlugins() {
         val js = settingsJs()
         val plugins = js.indexOf("['plugins', 'plugin', 'settings.tab.plugins']")
         val commitAi = js.indexOf("['commit-ai', 'commit', 'settings.tab.commitAi']")
-        val cli = js.indexOf("['cli', 'terminal', 'settings.tab.cli']")
         assertTrue("plugins tab missing", plugins >= 0)
         assertTrue("Commit AI must follow Plugins", commitAi > plugins)
-        assertTrue("Commit AI must precede pi CLI", cli > commitAi)
+    }
+
+    fun testCliInstallUsesOfficialCommandAndJcefConfirmation() {
+        val js = settingsJs()
+        assertTrue(js.contains("curl -fsSL https://pi.dev/install.sh | sh"))
+        assertTrue(js.contains("state.settings.piInstallCommand"))
+        assertTrue(js.contains("send({ type: 'installPi' })"))
+        assertTrue(js.contains("els['install-pi'].hidden = !!value.detecting || !!value.piInstalled"))
+        assertTrue(js.contains("if (page === 'cli') send({ type: 'detectPi' })"))
     }
 
     fun testEveryMessageSentBySettingsJsHasABridgeHandler() {

@@ -42,10 +42,10 @@ class PiSettingsDialog(project: Project?) : DialogWrapper(project, true) {
         // Tabs on the left read like the sidebar navigation of the reference settings page.
         val tabs = JBTabbedPane(javax.swing.JTabbedPane.LEFT)
         tabs.addTab(PiBundle.message("settings.tab.general"), general)
+        tabs.addTab(PiBundle.message("settings.tab.cli"), cli)
         tabs.addTab(PiBundle.message("settings.tab.providers"), providers)
         tabs.addTab(PiBundle.message("settings.tab.skills"), skills)
         tabs.addTab(PiBundle.message("settings.tab.plugins"), plugins)
-        tabs.addTab(PiBundle.message("settings.tab.cli"), cli)
         tabs.border = JBUI.Borders.empty()
         tabs.preferredSize = Dimension(JBUI.scale(680), JBUI.scale(520))
         return tabs

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="430" viewBox="0 0 960 430" role="img" aria-labelledby="title desc">
+  <title id="title">Same-model GPT bugfix counterexample</title>
+  <desc id="desc">Codex median 107.73 seconds and 505.4 thousand cumulative input tokens. Pi median 140.96 seconds and 525.4 thousand cumulative input tokens. Both passed three of three runs.</desc>
+  <rect width="960" height="430" rx="20" fill="#f8fafc"/>
+  <text x="40" y="52" fill="#0f172a" font-family="Arial,sans-serif" font-size="25" font-weight="700">A counterexample: Codex leads this GPT task</text>
+  <text x="40" y="79" fill="#475569" font-family="Arial,sans-serif" font-size="15">GPT-5.6 Luna · bugfix and tests · median of 3 runs · both 3/3 correct</text>
+  <text x="40" y="130" fill="#334155" font-family="Arial,sans-serif" font-size="18" font-weight="700">Wall time (seconds, lower is better)</text>
+  <line x1="225" y1="158" x2="790" y2="158" stroke="#cbd5e1"/>
+  <text x="42" y="198" fill="#0f172a" font-family="Arial,sans-serif" font-size="17">Codex</text>
+  <rect x="225" y="175" width="377" height="31" rx="5" fill="#64748b"/><text x="614" y="197" fill="#0f172a" font-family="Arial,sans-serif" font-size="16" font-weight="700">107.7</text>
+  <text x="42" y="243" fill="#0f172a" font-family="Arial,sans-serif" font-size="17">Pi</text>
+  <rect x="225" y="220" width="493" height="31" rx="5" fill="#2563eb"/><text x="730" y="242" fill="#0f172a" font-family="Arial,sans-serif" font-size="16">141.0</text>
+  <text x="40" y="315" fill="#334155" font-family="Arial,sans-serif" font-size="18" font-weight="700">Cumulative input (thousand tokens, lower is better)</text>
+  <line x1="225" y1="340" x2="790" y2="340" stroke="#cbd5e1"/>
+  <text x="42" y="375" fill="#0f172a" font-family="Arial,sans-serif" font-size="17">Codex</text>
+  <rect x="225" y="351" width="455" height="29" rx="5" fill="#64748b"/><text x="692" y="372" fill="#0f172a" font-family="Arial,sans-serif" font-size="16" font-weight="700">505.4k</text>
+  <text x="42" y="414" fill="#0f172a" font-family="Arial,sans-serif" font-size="17">Pi</text>
+  <rect x="225" y="390" width="473" height="29" rx="5" fill="#2563eb"/><text x="710" y="411" fill="#0f172a" font-family="Arial,sans-serif" font-size="16">525.4k</text>
+  <text x="820" y="414" fill="#64748b" font-family="Arial,sans-serif" font-size="12">Source: d1-m4ss</text>
+</svg>

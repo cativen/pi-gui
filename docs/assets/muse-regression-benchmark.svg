@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="500" viewBox="0 0 960 500" role="img" aria-labelledby="title desc">
+  <title id="title">Same-model regression task: Pi, Codex, Claude Code</title>
+  <desc id="desc">Pi 103.96 seconds and 267.4 thousand cumulative input tokens, Codex 110.42 seconds and 446.4 thousand, Claude Code 112.46 seconds and 444.2 thousand. All passed two of two runs.</desc>
+  <rect width="960" height="500" rx="20" fill="#f8fafc"/>
+  <text x="40" y="52" fill="#0f172a" font-family="Arial,sans-serif" font-size="25" font-weight="700">Same model · same regression task</text>
+  <text x="40" y="79" fill="#475569" font-family="Arial,sans-serif" font-size="15">Muse Spark 1.2 Contributor · mean of 2 runs · all 2/2 correct</text>
+  <text x="40" y="126" fill="#334155" font-family="Arial,sans-serif" font-size="18" font-weight="700">Wall time (seconds, lower is better)</text>
+  <line x1="225" y1="155" x2="790" y2="155" stroke="#cbd5e1"/>
+  <text x="42" y="192" fill="#0f172a" font-family="Arial,sans-serif" font-size="17">Pi</text>
+  <rect x="225" y="168" width="416" height="29" rx="5" fill="#2563eb"/><text x="653" y="189" fill="#0f172a" font-family="Arial,sans-serif" font-size="16" font-weight="700">104.0</text>
+  <text x="42" y="231" fill="#0f172a" font-family="Arial,sans-serif" font-size="17">Codex</text>
+  <rect x="225" y="207" width="442" height="29" rx="5" fill="#64748b"/><text x="679" y="228" fill="#0f172a" font-family="Arial,sans-serif" font-size="16">110.4</text>
+  <text x="42" y="270" fill="#0f172a" font-family="Arial,sans-serif" font-size="17">Claude Code</text>
+  <rect x="225" y="246" width="450" height="29" rx="5" fill="#94a3b8"/><text x="687" y="267" fill="#0f172a" font-family="Arial,sans-serif" font-size="16">112.5</text>
+  <text x="40" y="335" fill="#334155" font-family="Arial,sans-serif" font-size="18" font-weight="700">Cumulative input (thousand tokens, lower is better)</text>
+  <line x1="225" y1="360" x2="790" y2="360" stroke="#cbd5e1"/>
+  <text x="42" y="392" fill="#0f172a" font-family="Arial,sans-serif" font-size="17">Pi</text>
+  <rect x="225" y="369" width="267" height="29" rx="5" fill="#2563eb"/><text x="504" y="390" fill="#0f172a" font-family="Arial,sans-serif" font-size="16" font-weight="700">267.4k</text>
+  <text x="42" y="430" fill="#0f172a" font-family="Arial,sans-serif" font-size="17">Codex</text>
+  <rect x="225" y="407" width="446" height="29" rx="5" fill="#64748b"/><text x="683" y="428" fill="#0f172a" font-family="Arial,sans-serif" font-size="16">446.4k</text>
+  <text x="42" y="468" fill="#0f172a" font-family="Arial,sans-serif" font-size="17">Claude Code</text>
+  <rect x="225" y="445" width="444" height="29" rx="5" fill="#94a3b8"/><text x="681" y="466" fill="#0f172a" font-family="Arial,sans-serif" font-size="16">444.2k</text>
+  <text x="820" y="478" fill="#64748b" font-family="Arial,sans-serif" font-size="12">Source: d1-m4ss</text>
+</svg>

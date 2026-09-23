@@ -41,6 +41,7 @@ class SendPathActionTest : BasePlatformTestCase() {
         listOf(
             "ProjectViewPopupMenu",
             "EditorPopupMenu",
+            "ConsoleView.PopupMenu",
             "EditorTabPopupMenu",
             "NavbarPopupMenu",
             "ScopeViewPopupMenu",
@@ -108,6 +109,26 @@ class SendPathActionTest : BasePlatformTestCase() {
         val presentation = presentationFor(context)
         assertTrue(presentation.isEnabledAndVisible)
         assertEquals("Send Selection Path to Pi GUI", presentation.text)
+    }
+
+    fun testSelectionInConsoleEditorIsVisibleWithoutAFile() {
+        val document = com.intellij.openapi.editor.EditorFactory.getInstance()
+            .createDocument("first log line\nselected log payload\nlast log line")
+        val editor = com.intellij.openapi.editor.EditorFactory.getInstance().createEditor(document, project)
+        try {
+            val start = document.text.indexOf("selected")
+            editor.selectionModel.setSelection(start, start + "selected log payload".length)
+            val context = SimpleDataContext.builder()
+                .add(CommonDataKeys.PROJECT, project)
+                .add(CommonDataKeys.EDITOR, editor)
+                .build()
+
+            val presentation = presentationFor(context)
+            assertTrue(presentation.isEnabledAndVisible)
+            assertEquals("Send Selection to Pi GUI", presentation.text)
+        } finally {
+            com.intellij.openapi.editor.EditorFactory.getInstance().releaseEditor(editor)
+        }
     }
 
     fun testSelectionReferenceKeepsItsLinesAsAttachmentMetadata() {

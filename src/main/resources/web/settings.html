@@ -40,6 +40,19 @@
       </div>
     </section>
 
+    <section class="settings-page" data-page="cli">
+      <header class="page-heading"><h1 data-label="settings.tab.cli"></h1><p data-label="settings.cli.description"></p></header>
+      <div class="settings-card">
+        <label class="field"><span data-label="settings.cli.path"></span><div class="input-action"><input id="pi-path" type="text" spellcheck="false"><button id="choose-pi" class="button" type="button" data-label="settings.choose"></button></div></label>
+        <div class="cli-detection-row">
+          <div id="pi-detected" class="field-hint"></div>
+          <button id="install-pi" class="button primary" data-busy-area="cli" type="button" hidden></button>
+        </div>
+        <div id="cli-status" class="inline-status" role="status" aria-live="polite"></div>
+        <label class="field"><span data-label="settings.cli.extraArgs"></span><input id="extra-args" type="text" spellcheck="false"><small data-label="settings.cli.extraArgs.hint"></small></label>
+      </div>
+    </section>
+
     <section class="settings-page" data-page="providers">
       <header class="page-heading page-heading-actions"><div><h1 data-label="settings.tab.providers"></h1><p data-label="settings.providers.description"></p></div><div class="header-actions"><button id="import-provider" class="button primary" data-busy-area="providers" type="button"></button><button id="import-provider-db" class="button" data-busy-area="providers" type="button"></button></div></header>
       <div id="providers-status" class="inline-status" role="status"></div>
@@ -98,14 +111,6 @@
       <div class="settings-info" role="note"><svg viewBox="0 0 18 18" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.45" aria-hidden="true"><path d="M9 2.5 14 4.4v3.8c0 3.15-2.05 5.7-5 7.3-2.95-1.6-5-4.15-5-7.3V4.4L9 2.5Z"/><path d="m6.8 8.9 1.45 1.45 3-3.15"/></svg><span data-label="settings.commitAi.privacy"></span></div>
     </section>
 
-    <section class="settings-page" data-page="cli">
-      <header class="page-heading"><h1 data-label="settings.tab.cli"></h1><p data-label="settings.cli.description"></p></header>
-      <div class="settings-card">
-        <label class="field"><span data-label="settings.cli.path"></span><div class="input-action"><input id="pi-path" type="text" spellcheck="false"><button id="choose-pi" class="button" type="button" data-label="settings.choose"></button></div></label>
-        <div id="pi-detected" class="field-hint"></div>
-        <label class="field"><span data-label="settings.cli.extraArgs"></span><input id="extra-args" type="text" spellcheck="false"><small data-label="settings.cli.extraArgs.hint"></small></label>
-      </div>
-    </section>
   </main>
 </div>
 

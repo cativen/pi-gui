@@ -84,7 +84,7 @@ class WebChatTest : BasePlatformTestCase() {
 
     fun testUserCopyFeedbackKeepsAStableButtonWidth() {
         val css = chatCss()
-        assertTrue("user copy button needs reserved width", css.contains(".message-copy") && css.contains("min-width: 76px"))
+        assertTrue("user copy button should be one-third-width and icon-only", css.contains("width: 26px") && css.contains(".message-copy-label { display: none; }"))
         assertTrue("copied state should swap to a check icon", css.contains(".message-copy.copied .check-icon"))
         assertTrue("copy action needs visible hover feedback", css.contains(".message-copy:hover"))
     }

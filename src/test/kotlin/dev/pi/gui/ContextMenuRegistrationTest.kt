@@ -26,6 +26,7 @@ class ContextMenuRegistrationTest : BasePlatformTestCase() {
     private val groups = listOf(
         "ProjectViewPopupMenu",
         "EditorPopupMenu",
+        "ConsoleView.PopupMenu",
         "EditorTabPopupMenu",
         "NavbarPopupMenu",
         "ScopeViewPopupMenu",

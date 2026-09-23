@@ -10,6 +10,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Disposer
 import dev.pi.gui.PiLocator
+import dev.pi.gui.PiInstaller
 import dev.pi.gui.i18n.PiBundle
 import dev.pi.gui.mcp.McpConfigService
 import dev.pi.gui.mcp.McpScope
@@ -51,6 +52,8 @@ class WebSettingsSurface(
     private val embedded: Boolean = false,
     private val onClose: () -> Unit = {},
     private val credentialConsent: (javax.swing.JComponent) -> Boolean = { CredentialAccessConsent.request(it) },
+    private val piDetector: () -> File? = { PiLocator.findPi() },
+    private val piInstall: () -> PiInstaller.Result = { PiInstaller.install() },
     page: ((JsonObject) -> Unit) -> WebPage = { PiWebView("settings", it) },
 ) : Disposable {
 
@@ -59,6 +62,8 @@ class WebSettingsSurface(
     private var draft = Draft.read()
     @Volatile private var detectedPi: String? = null
     @Volatile private var detectingPi = true
+    @Volatile private var piInstalled = false
+    @Volatile private var installingPi = false
 
     val component get() = view.component
 
@@ -133,6 +138,8 @@ class WebSettingsSurface(
                 if (embedded) applyEmbeddedChange("commitPrompt")
             }
             "choosePi" -> choosePiExecutable()
+            "detectPi" -> detectPi()
+            "installPi" -> installPi()
             "importProvidersAuto" -> if (requestCredentialAccess()) {
                 importProviders { CcSwitchImporter.importAuto() }
             }
@@ -195,10 +202,41 @@ class WebSettingsSurface(
         post("saved", "message" to PiBundle.message("settings.autoSaved"))
     }
 
-    private fun detectPi() = pooled {
-        detectedPi = PiLocator.discover()?.absolutePath
-        detectingPi = false
+    private fun detectPi() {
+        if (installingPi) return
+        detectingPi = true
         pushState()
+        pooled {
+            detectedPi = piDetector()?.absolutePath
+            piInstalled = detectedPi != null
+            detectingPi = false
+            pushState()
+        }
+    }
+
+    /** The JCEF page has already shown the explicit command confirmation before this is called. */
+    private fun installPi() {
+        if (installingPi || piInstalled) return
+        installingPi = true
+        status("cli", PiBundle.message("settings.cli.installing"), busy = true)
+        pushState()
+        pooled {
+            val result = piInstall()
+            if (result.success) {
+                detectedPi = piDetector()?.absolutePath
+                piInstalled = true
+                status("cli", PiBundle.message("settings.cli.install.success"))
+            } else {
+                val detail = if (result.timedOut) {
+                    PiBundle.message("settings.cli.install.timeout")
+                } else {
+                    result.output.takeLast(800).ifBlank { PiBundle.message("settings.cli.install.failed") }
+                }
+                status("cli", PiBundle.message("settings.cli.install.failedDetail", detail), error = true)
+            }
+            installingPi = false
+            pushState()
+        }
     }
 
     // --------------------------------------------------------------- providers
@@ -565,6 +603,9 @@ class WebSettingsSurface(
                 "fontMax" to PiSettings.MAX_FONT_SIZE,
                 "detected" to detectedPi,
                 "detecting" to detectingPi,
+                "piInstalled" to piInstalled,
+                "installingPi" to installingPi,
+                "piInstallCommand" to PiInstaller.command(),
                 "projectAvailable" to (project?.basePath != null),
                 "embedded" to embedded,
             ),
@@ -643,7 +684,7 @@ class WebSettingsSurface(
 
     companion object {
         internal val HANDLED_MESSAGES = setOf(
-            "ready", "closeSettings", "updateDraft", "resetDraft", "resetCommitPrompt", "choosePi", "importProvidersAuto",
+            "ready", "closeSettings", "updateDraft", "resetDraft", "resetCommitPrompt", "choosePi", "detectPi", "installPi", "importProvidersAuto",
             "importProvidersDb", "enableProvider", "saveProvider", "deleteProvider", "toggleSkill",
             "searchSkills", "installSkill", "refreshMcp", "saveMcp", "toggleMcp", "deleteMcp",
             "searchPackages", "installPackage", "removePackage",
@@ -661,6 +702,9 @@ class WebSettingsSurface(
             "settings.language.en", "settings.language.zhCN", "settings.language.zhTW",
             "settings.cli.description", "settings.cli.path", "settings.cli.extraArgs", "settings.cli.extraArgs.hint",
             "settings.cli.notFound", "settings.detected", "settings.detecting", "settings.choose", "settings.save", "settings.cancel",
+            "settings.cli.install", "settings.cli.install.confirmTitle", "settings.cli.install.confirm",
+            "settings.cli.installing", "settings.cli.install.success", "settings.cli.install.failed",
+            "settings.cli.install.failedDetail", "settings.cli.install.timeout", "settings.yes",
             "settings.saved", "settings.autoSaved", "settings.backToChat", "settings.installed",
             "settings.providers.description", "settings.skills.description", "settings.mcp.description",
             "settings.plugins.description", "providers.claudeSection", "providers.codexSection",

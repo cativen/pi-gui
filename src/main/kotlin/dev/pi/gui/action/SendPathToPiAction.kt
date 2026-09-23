@@ -15,12 +15,15 @@ import dev.pi.gui.ui.PiToolWindowFactory
 /**
  * Sends the path of whatever the user acted on into the Pi GUI composer as an `@mention`.
  *
- * Handles the four cases the context menus can produce: a selection inside the editor (path plus
- * line range), a single file, a directory, and a multi-selection in the project view.
+ * Handles the context menus' file, folder and source-selection cases, plus selected console text.
  */
 class SendPathToPiAction : AnAction(), DumbAware {
 
-    private data class Target(val label: String, val references: List<Attachment.FileRef>)
+    private data class Target(
+        val label: String,
+        val references: List<Attachment.FileRef> = emptyList(),
+        val selectedText: String? = null,
+    )
 
     /**
      * BGT, and it has to be.
@@ -50,7 +53,8 @@ class SendPathToPiAction : AnAction(), DumbAware {
         // the very first time the tool window is opened.
         toolWindow.activate {
             PiToolWindowFactory.findPanel(project)?.let { panel ->
-                panel.addPathReferences(target.references)
+                target.selectedText?.let(panel::appendToInput)
+                    ?: panel.addPathReferences(target.references)
                 panel.focusInput()
             }
         }
@@ -61,6 +65,13 @@ class SendPathToPiAction : AnAction(), DumbAware {
         val editor = e.getData(CommonDataKeys.EDITOR)
         val contextFile = e.getData(CommonDataKeys.VIRTUAL_FILE)
         val editorFile = editor?.let { FileDocumentManager.getInstance().getFile(it.document) }
+
+        // Console editors have a real Editor and selection but no VirtualFile. Send the selected
+        // log text itself at the composer's saved caret; manufacturing a path here would be false.
+        if (editor != null && editorFile == null && editor.selectionModel.hasSelection()) {
+            val selected = editor.selectionModel.selectedText?.takeIf { it.isNotBlank() }
+            if (selected != null) return Target("Send Selection to Pi GUI", selectedText = selected)
+        }
 
         // Only treat a selection as the target when the menu was opened on that same editor —
         // the tab popup also supplies an EDITOR, but for a possibly different file.
@@ -73,7 +84,7 @@ class SendPathToPiAction : AnAction(), DumbAware {
             val endLine = document.getLineNumber(editor.selectionModel.selectionEnd) + 1
             return Target(
                 "Send Selection Path to Pi GUI",
-                listOf(referenceFor(editorFile, base, startLine, endLine)),
+                references = listOf(referenceFor(editorFile, base, startLine, endLine)),
             )
         }
 
@@ -86,7 +97,7 @@ class SendPathToPiAction : AnAction(), DumbAware {
             files.first().isDirectory -> "Send Folder Path to Pi GUI"
             else -> "Send File Path to Pi GUI"
         }
-        return Target(label, files.map { referenceFor(it, base) })
+        return Target(label, references = files.map { referenceFor(it, base) })
     }
 
     internal fun referenceFor(

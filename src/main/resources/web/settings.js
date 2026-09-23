@@ -48,7 +48,7 @@
       'refresh-packages', 'open-packages', 'package-source', 'install-package', 'package-scopes',
       'package-query', 'search-packages', 'package-results', 'plugins-status', 'packages-summary',
       'packages-list', 'commit-language', 'commit-prompt', 'commit-prompt-count', 'reset-commit-prompt',
-      'pi-path', 'choose-pi', 'pi-detected', 'extra-args', 'modal', 'modal-title',
+      'pi-path', 'choose-pi', 'pi-detected', 'install-pi', 'cli-status', 'extra-args', 'modal', 'modal-title',
       'modal-body', 'modal-close'].forEach(function (id) { els[id] = document.getElementById(id); });
 
     els['reset-settings'].addEventListener('click', function () { send({ type: 'resetDraft' }); });
@@ -65,6 +65,7 @@
     els['commit-prompt'].addEventListener('change', function () { updateDraft('commitPrompt', this.value); });
     els['reset-commit-prompt'].addEventListener('click', function () { send({ type: 'resetCommitPrompt' }); });
     els['choose-pi'].addEventListener('click', function () { send({ type: 'choosePi' }); });
+    els['install-pi'].addEventListener('click', confirmPiInstall);
     els['import-provider'].addEventListener('click', function () { send({ type: 'importProvidersAuto' }); });
     els['import-provider-db'].addEventListener('click', function () { send({ type: 'importProvidersDb' }); });
     els['add-skill'].addEventListener('click', openSkillSearch);
@@ -163,11 +164,11 @@
     els['reset-settings'].textContent = '↶  ' + t('settings.reset');
     document.querySelectorAll('[data-label]').forEach(function (node) { node.textContent = t(node.dataset.label); });
     var tabs = [
-      ['general', 'general', 'settings.tab.general'], ['providers', 'provider', 'settings.tab.providers'],
+      ['general', 'general', 'settings.tab.general'], ['cli', 'terminal', 'settings.tab.cli'],
+      ['providers', 'provider', 'settings.tab.providers'],
       ['skills', 'skill', 'settings.tab.skills'], ['mcp', 'mcp', 'settings.tab.mcp'],
       ['plugins', 'plugin', 'settings.tab.plugins'],
-      ['commit-ai', 'commit', 'settings.tab.commitAi'],
-      ['cli', 'terminal', 'settings.tab.cli']
+      ['commit-ai', 'commit', 'settings.tab.commitAi']
     ];
     els['settings-nav'].innerHTML = tabs.map(function (tab, index) {
       return '<button class="settings-nav-item' + (index === 0 ? ' active' : '') + '" data-page="' + tab[0] +
@@ -187,6 +188,7 @@
     els['install-package'].textContent = t('plugins.install');
     els['search-packages'].textContent = t('plugins.search.action');
     els['package-query'].placeholder = t('plugins.search.placeholder');
+    els['install-pi'].textContent = t('settings.cli.install');
     paintCommitPromptCount();
   }
 
@@ -194,6 +196,7 @@
     document.querySelectorAll('.settings-page').forEach(function (node) { node.classList.toggle('active', node.dataset.page === page); });
     document.querySelectorAll('.settings-nav-item').forEach(function (node) { node.classList.toggle('active', node.dataset.page === page); });
     if (page === 'mcp') send({ type: 'refreshMcp' });
+    if (page === 'cli') send({ type: 'detectPi' });
   }
 
   function paintAll() { paintSettings(); paintProviders(); paintSkills(); paintMcp(); paintPackages(); }
@@ -220,13 +223,29 @@
     els['commit-prompt'].value = value.commitPrompt || '';
     paintCommitPromptCount();
     els['pi-detected'].textContent = value.detecting ? t('settings.detecting') :
-      (value.detected ? t('settings.detected') + ': ' + value.detected : t('settings.cli.notFound'));
-    els['pi-detected'].classList.toggle('error', !value.detecting && !value.detected);
+      (value.piInstalled ? (value.detected ? t('settings.detected') + ': ' + value.detected : t('settings.cli.install.success')) : t('settings.cli.notFound'));
+    els['pi-detected'].classList.toggle('error', !value.detecting && !value.piInstalled);
+    els['install-pi'].hidden = !!value.detecting || !!value.piInstalled;
+    els['install-pi'].disabled = !!value.installingPi;
   }
 
   function paintCommitPromptCount() {
     if (!els['commit-prompt-count'] || !els['commit-prompt']) return;
     els['commit-prompt-count'].textContent = els['commit-prompt'].value.length + ' / ' + (els['commit-prompt'].maxLength || 2000);
+  }
+
+  function confirmPiInstall() {
+    var command = state.settings.piInstallCommand || 'curl -fsSL https://pi.dev/install.sh | sh';
+    openModal(t('settings.cli.install.confirmTitle'),
+      '<div class="modal-form"><p class="install-confirm-copy">' + esc(t('settings.cli.install.confirm')) + '</p>' +
+      '<code class="install-command">' + esc(command) + '</code>' +
+      '<div class="modal-actions"><button id="cancel-pi-install" class="button" type="button">' + esc(t('settings.cancel')) + '</button>' +
+      '<button id="confirm-pi-install" class="button primary" type="button">' + esc(t('settings.yes')) + '</button></div></div>');
+    document.getElementById('cancel-pi-install').addEventListener('click', closeModal);
+    document.getElementById('confirm-pi-install').addEventListener('click', function () {
+      closeModal();
+      send({ type: 'installPi' });
+    });
   }
 
   function choices(field, selected, items) {

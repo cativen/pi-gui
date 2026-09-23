@@ -68,6 +68,15 @@ object PiLocator {
             candidate(dir)?.let { return it }
         }
 
+        // The current pi.dev installers place their managed launcher here. The running IDE's
+        // PATH does not change after an installer updates the user's shell profile, so scan it
+        // explicitly to recognize a just-completed installation on every operating system.
+        val managedAgentDir = env["PI_CODING_AGENT_DIR"]?.takeIf { it.isNotBlank() }
+            ?.let(::expandTilde)
+            ?.let(::File)
+            ?: File(System.getProperty("user.home"), ".pi/agent")
+        candidate(File(managedAgentDir, "bin").path)?.let { return it }
+
         COMMON_DIRS.forEach { dir -> candidate(dir)?.let { return it } }
 
         // nvm / fnm keep one bin dir per installed node version.
@@ -94,7 +103,7 @@ object PiLocator {
     private fun candidate(dir: String): File? {
         if (dir.isBlank()) return null
         val f = File(dir, if (isWindows()) "pi.cmd" else "pi")
-        if (f.isFile && f.canExecute()) return f
+        if (f.isFile && (f.canExecute() || isWindows())) return f
         if (isWindows()) {
             val exe = File(dir, "pi.exe")
             if (exe.isFile) return exe
@@ -148,6 +157,7 @@ object PiLocator {
         "USERPROFILE", "APPDATA", "LOCALAPPDATA", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT",
         "NODE_PATH", "NVM_DIR", "FNM_DIR", "VOLTA_HOME", "PI_CODING_AGENT_DIR",
         "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+        "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE",
     )
 
     internal val AI_CREDENTIAL_KEYS = listOf(

@@ -55,6 +55,7 @@
             -->
             <add-to-group group-id="ProjectViewPopupMenu" anchor="first"/>
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
+            <add-to-group group-id="ConsoleView.PopupMenu" anchor="first"/>
             <add-to-group group-id="EditorTabPopupMenu" anchor="first"/>
             <add-to-group group-id="NavbarPopupMenu" anchor="first"/>
             <add-to-group group-id="ScopeViewPopupMenu" anchor="first"/>
