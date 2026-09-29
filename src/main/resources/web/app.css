@@ -4,6 +4,8 @@
  * anything about either.
  */
 :root {
+  --color-scheme: dark;
+  color-scheme: var(--color-scheme);
   --chat-bg: #141517;
   --surface-bg: #1b1c1f;
   --elevated-bg: #272a31;
@@ -335,6 +337,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .cli-detection-row .field-hint { flex: 1 1 auto; min-width: 0; margin: 0; }
 .cli-detection-row .button { flex: 0 0 auto; }
 #cli-status { margin: 0 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+#pi-detected { white-space: pre-line; }
 .field input, .field select, .field textarea {
   width: 100%;
   min-height: 36px;

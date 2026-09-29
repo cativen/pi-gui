@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "dev.pi"
-version = "1.0.3"
+version = "1.0.4"
 
 repositories {
     mavenCentral()
@@ -111,6 +111,12 @@ intellijPlatform {
             Windows: <code>powershell -c &quot;irm https://pi.dev/install.ps1 | iex&quot;</code></p>
         """.trimIndent()
         changeNotes = """
+            <h4>1.0.4</h4>
+            <ul>
+              <li>Refresh the full chat and settings surface when switching light and dark appearance.</li>
+              <li>Copy fenced code blocks with their original line breaks and indentation.</li>
+              <li>Show the installed and latest pi CLI versions and offer a confirmed self-update when needed.</li>
+            </ul>
             <h4>1.0.3</h4>
             <p>Improves file and folder references in the chat composer.</p>
             <ul>

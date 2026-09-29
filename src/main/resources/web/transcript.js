@@ -37,8 +37,8 @@
       var copy = t.closest && t.closest('.code-copy');
       if (copy) {
         var wrap = copy.closest('.code-wrap');
-        var pre = wrap && wrap.querySelector('pre.code');
-        if (pre) send({ type: 'copy', text: pre.textContent });
+        var source = wrap && wrap.querySelector('.code-copy-source');
+        if (source) send({ type: 'copy', text: source.textContent });
         return;
       }
       if (t.closest && t.closest('.load-earlier')) send({ type: 'loadEarlier' });
@@ -82,9 +82,11 @@
   var handlers = {
     theme: function (e) {
       var root = document.documentElement;
-      Object.keys(e.vars || {}).forEach(function (k) {
-        root.style.setProperty('--' + k, e.vars[k]);
-      });
+      var vars = e.vars || {};
+      root.style.cssText = Object.keys(vars).map(function (k) { return '--' + k + ':' + vars[k]; }).join(';') + ';';
+      document.body.style.display = 'none';
+      void document.body.offsetHeight;
+      document.body.style.display = '';
     },
 
     empty: function (e) {

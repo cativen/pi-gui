@@ -175,7 +175,11 @@ object HtmlRenderer {
             append("""</span><button class="code-copy" data-copy="1" type="button" title="$copy" aria-label="$copy">""")
             append("""<svg viewBox="0 0 18 18" aria-hidden="true"><rect x="6" y="6" width="8.5" height="8.5" rx="1.5"/><path d="M4.5 11.5h-1V3.5h8v1"/></svg><span>""")
             append(copy)
-            append("""</span></button></div><pre class="code">""")
+            append("""</span></button></div><span class="code-copy-source" hidden aria-hidden="true">""")
+            // Syntax highlighting renders newlines as <br> and indentation as &nbsp;.
+            // Preserve the original code for copying instead of reading flattened HTML text.
+            append(esc(code))
+            append("""</span><pre class="code">""")
             append(body)
             append("</pre></div>")
         }

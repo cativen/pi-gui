@@ -17,7 +17,7 @@
    ./gradlew buildPlugin
    ```
 
-   构建产物位于 `build/distributions/pi-gui-1.0.2.zip`。
+   构建产物位于 `build/distributions/pi-gui-1.0.4.zip`。
 
 2. 在 IDE 中打开 **Settings → Plugins → ⚙ → Install Plugin from Disk…**，选择 ZIP 文件并重启 IDE。
 

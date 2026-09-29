@@ -92,7 +92,11 @@
   var handlers = {
     theme: function (e) {
       var root = document.documentElement;
-      Object.keys(e.vars).forEach(function (k) { root.style.setProperty('--' + k, e.vars[k]); });
+      var vars = e.vars || {};
+      root.style.cssText = Object.keys(vars).map(function (k) { return '--' + k + ':' + vars[k]; }).join(';') + ';';
+      document.body.style.display = 'none';
+      void document.body.offsetHeight;
+      document.body.style.display = '';
     },
 
     i18n: function (e) {
@@ -348,8 +352,8 @@
     }
     var copy = e.target.closest ? e.target.closest('.code-copy') : null;
     if (copy) {
-      var pre = copy.parentNode.parentNode.querySelector('pre.code');
-      if (pre) send({ type: 'copy', text: pre.textContent });
+      var source = copy.closest('.code-wrap').querySelector('.code-copy-source');
+      if (source) send({ type: 'copy', text: source.textContent });
       return;
     }
     var earlier = e.target.closest ? e.target.closest('.load-earlier') : null;

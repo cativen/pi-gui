@@ -48,7 +48,7 @@
       'refresh-packages', 'open-packages', 'package-source', 'install-package', 'package-scopes',
       'package-query', 'search-packages', 'package-results', 'plugins-status', 'packages-summary',
       'packages-list', 'commit-language', 'commit-prompt', 'commit-prompt-count', 'reset-commit-prompt',
-      'pi-path', 'choose-pi', 'pi-detected', 'install-pi', 'cli-status', 'extra-args', 'modal', 'modal-title',
+      'pi-path', 'choose-pi', 'pi-detected', 'install-pi', 'update-pi', 'cli-status', 'extra-args', 'modal', 'modal-title',
       'modal-body', 'modal-close'].forEach(function (id) { els[id] = document.getElementById(id); });
 
     els['reset-settings'].addEventListener('click', function () { send({ type: 'resetDraft' }); });
@@ -66,6 +66,7 @@
     els['reset-commit-prompt'].addEventListener('click', function () { send({ type: 'resetCommitPrompt' }); });
     els['choose-pi'].addEventListener('click', function () { send({ type: 'choosePi' }); });
     els['install-pi'].addEventListener('click', confirmPiInstall);
+    els['update-pi'].addEventListener('click', confirmPiUpdate);
     els['import-provider'].addEventListener('click', function () { send({ type: 'importProvidersAuto' }); });
     els['import-provider-db'].addEventListener('click', function () { send({ type: 'importProvidersDb' }); });
     els['add-skill'].addEventListener('click', openSkillSearch);
@@ -96,9 +97,13 @@
 
   var handlers = {
     theme: function (event) {
-      Object.keys(event.vars || {}).forEach(function (key) {
-        document.documentElement.style.setProperty('--' + key, event.vars[key]);
-      });
+      var vars = event.vars || {};
+      document.documentElement.style.cssText = Object.keys(vars).map(function (key) {
+        return '--' + key + ':' + vars[key];
+      }).join(';') + ';';
+      document.body.style.display = 'none';
+      void document.body.offsetHeight;
+      document.body.style.display = '';
     },
     i18n: function (event) {
       strings = event.strings || {};
@@ -189,6 +194,7 @@
     els['search-packages'].textContent = t('plugins.search.action');
     els['package-query'].placeholder = t('plugins.search.placeholder');
     els['install-pi'].textContent = t('settings.cli.install');
+    els['update-pi'].textContent = t('settings.cli.update');
     paintCommitPromptCount();
   }
 
@@ -222,11 +228,24 @@
     els['commit-prompt'].maxLength = value.commitPromptMax || 2000;
     els['commit-prompt'].value = value.commitPrompt || '';
     paintCommitPromptCount();
-    els['pi-detected'].textContent = value.detecting ? t('settings.detecting') :
+    var piDescription = value.detecting ? t('settings.detecting') :
       (value.piInstalled ? (value.detected ? t('settings.detected') + ': ' + value.detected : t('settings.cli.install.success')) : t('settings.cli.notFound'));
+    if (!value.detecting && value.piInstalled) {
+      piDescription += '\n' + (value.installedPiVersion
+        ? t('settings.cli.version.current') + ': ' + value.installedPiVersion
+        : t('settings.cli.version.currentUnknown'));
+      piDescription += '\n' + (value.latestPiVersion
+        ? t('settings.cli.version.latest') + ': ' + value.latestPiVersion
+        : t('settings.cli.version.checkFailed'));
+      if (value.latestPiVersion && !value.piUpdateAvailable && value.installedPiVersion)
+        piDescription += '\n' + t('settings.cli.version.upToDate');
+    }
+    els['pi-detected'].textContent = piDescription;
     els['pi-detected'].classList.toggle('error', !value.detecting && !value.piInstalled);
     els['install-pi'].hidden = !!value.detecting || !!value.piInstalled;
-    els['install-pi'].disabled = !!value.installingPi;
+    els['install-pi'].disabled = !!value.installingPi || !!value.updatingPi;
+    els['update-pi'].hidden = !!value.detecting || !value.piInstalled || !value.piUpdateAvailable;
+    els['update-pi'].disabled = !!value.installingPi || !!value.updatingPi;
   }
 
   function paintCommitPromptCount() {
@@ -245,6 +264,20 @@
     document.getElementById('confirm-pi-install').addEventListener('click', function () {
       closeModal();
       send({ type: 'installPi' });
+    });
+  }
+
+  function confirmPiUpdate() {
+    var version = (state.settings.installedPiVersion || '?') + ' → ' + (state.settings.latestPiVersion || '?');
+    openModal(t('settings.cli.update.confirmTitle'),
+      '<div class="modal-form"><p class="install-confirm-copy">' + esc(t('settings.cli.update.confirm')) + '</p>' +
+      '<p>' + esc(version) + '</p><code class="install-command">pi update</code>' +
+      '<div class="modal-actions"><button id="cancel-pi-update" class="button" type="button">' + esc(t('settings.cancel')) + '</button>' +
+      '<button id="confirm-pi-update" class="button primary" type="button">' + esc(t('settings.yes')) + '</button></div></div>');
+    document.getElementById('cancel-pi-update').addEventListener('click', closeModal);
+    document.getElementById('confirm-pi-update').addEventListener('click', function () {
+      closeModal();
+      send({ type: 'updatePi' });
     });
   }
 

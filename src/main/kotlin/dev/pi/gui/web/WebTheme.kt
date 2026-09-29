@@ -15,6 +15,7 @@ object WebTheme {
         val font = PiTheme.uiFont()
         val mono = PiTheme.monoFont()
         return mapOf(
+            "color-scheme" to if (PiTheme.isDark()) "dark" else "light",
             "chat-bg" to hex(PiTheme.chatBg),
             "surface-bg" to hex(PiTheme.surfaceBg),
             "elevated-bg" to hex(PiTheme.elevatedBg),

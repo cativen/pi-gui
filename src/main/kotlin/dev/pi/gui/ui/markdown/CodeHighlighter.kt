@@ -22,6 +22,13 @@ object CodeHighlighter {
 
     fun toHtml(project: Project?, language: String?, code: String): String {
         val scheme = EditorColorsManager.getInstance().globalScheme
+        val background = scheme.defaultBackground
+        val schemeIsDark =
+            (background.red * 299 + background.green * 587 + background.blue * 114) < 128_000
+        // The plugin's appearance can differ from the IDE editor theme. In that case the
+        // editor lexer colours may be nearly invisible on the plugin's opposite background.
+        if (schemeIsDark != PiTheme.isDark())
+            return plainHtml(code, PiTheme.textFg())
         val defaultFg = scheme.defaultForeground ?: PiTheme.textFg()
 
         val highlighter = try {

@@ -11,6 +11,7 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Disposer
 import dev.pi.gui.PiLocator
 import dev.pi.gui.PiInstaller
+import dev.pi.gui.PiCliUpdater
 import dev.pi.gui.i18n.PiBundle
 import dev.pi.gui.mcp.McpConfigService
 import dev.pi.gui.mcp.McpScope
@@ -37,6 +38,7 @@ import dev.pi.gui.web.WebTheme
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * JCEF settings application shared by the toolbar dialog and IDE Settings configurable.
@@ -54,6 +56,9 @@ class WebSettingsSurface(
     private val credentialConsent: (javax.swing.JComponent) -> Boolean = { CredentialAccessConsent.request(it) },
     private val piDetector: () -> File? = { PiLocator.findPi() },
     private val piInstall: () -> PiInstaller.Result = { PiInstaller.install() },
+    private val piVersion: (File) -> String? = { PiCliUpdater.installedVersion(it) },
+    private val piLatestVersion: () -> String? = { PiCliUpdater.latestVersion() },
+    private val piUpdate: (File) -> PiInstaller.Result = { PiCliUpdater.update(it) },
     page: ((JsonObject) -> Unit) -> WebPage = { PiWebView("settings", it) },
 ) : Disposable {
 
@@ -64,6 +69,10 @@ class WebSettingsSurface(
     @Volatile private var detectingPi = true
     @Volatile private var piInstalled = false
     @Volatile private var installingPi = false
+    @Volatile private var updatingPi = false
+    @Volatile private var installedPiVersion: String? = null
+    @Volatile private var latestPiVersion: String? = null
+    private val detectionGeneration = AtomicInteger()
 
     val component get() = view.component
 
@@ -126,6 +135,7 @@ class WebSettingsSurface(
                 val field = text("field")
                 updateDraft(field, message["value"])
                 if (embedded) applyEmbeddedChange(field)
+                if (field == "piPath") detectPi()
             }
             "resetDraft" -> {
                 draft = Draft.defaults()
@@ -140,6 +150,7 @@ class WebSettingsSurface(
             "choosePi" -> choosePiExecutable()
             "detectPi" -> detectPi()
             "installPi" -> installPi()
+            "updatePi" -> updatePi()
             "importProvidersAuto" -> if (requestCredentialAccess()) {
                 importProviders { CcSwitchImporter.importAuto() }
             }
@@ -191,6 +202,7 @@ class WebSettingsSurface(
             draft = draft.copy(piPath = chooser.selectedFile?.absolutePath.orEmpty())
             pushState()
             if (embedded) applyEmbeddedChange("piPath")
+            detectPi()
         }
     }
 
@@ -203,14 +215,26 @@ class WebSettingsSurface(
     }
 
     private fun detectPi() {
-        if (installingPi) return
+        if (installingPi || updatingPi) return
+        val generation = detectionGeneration.incrementAndGet()
+        val configuredPath = draft.piPath.trim()
         detectingPi = true
         pushState()
         pooled {
-            detectedPi = piDetector()?.absolutePath
-            piInstalled = detectedPi != null
-            detectingPi = false
-            pushState()
+            val executable = if (configuredPath.isNotEmpty()) File(configuredPath)
+                .takeIf { it.isFile && (it.canExecute() || PiLocator.isWindows()) }
+            else runCatching { piDetector() }.getOrNull()
+            val installed = executable?.let { runCatching { piVersion(it) }.getOrNull() }
+            val latest = if (executable != null) runCatching { piLatestVersion() }.getOrNull() else null
+            ApplicationManager.getApplication().invokeLater({
+                if (disposed || generation != detectionGeneration.get()) return@invokeLater
+                detectedPi = executable?.absolutePath
+                piInstalled = executable != null
+                installedPiVersion = installed
+                latestPiVersion = latest
+                detectingPi = false
+                pushState()
+            }, ModalityState.any())
         }
     }
 
@@ -223,8 +247,6 @@ class WebSettingsSurface(
         pooled {
             val result = piInstall()
             if (result.success) {
-                detectedPi = piDetector()?.absolutePath
-                piInstalled = true
                 status("cli", PiBundle.message("settings.cli.install.success"))
             } else {
                 val detail = if (result.timedOut) {
@@ -235,7 +257,28 @@ class WebSettingsSurface(
                 status("cli", PiBundle.message("settings.cli.install.failedDetail", detail), error = true)
             }
             installingPi = false
-            pushState()
+            detectPi()
+        }
+    }
+
+    /** The page asks for confirmation before sending this action. */
+    private fun updatePi() {
+        val executable = detectedPi?.let(::File) ?: return
+        if (updatingPi || installingPi || !PiCliUpdater.updateAvailable(installedPiVersion, latestPiVersion)) return
+        updatingPi = true
+        status("cli", PiBundle.message("settings.cli.updating"), busy = true)
+        pushState()
+        pooled {
+            val result = piUpdate(executable)
+            if (result.success) {
+                status("cli", PiBundle.message("settings.cli.update.success"))
+            } else {
+                val detail = if (result.timedOut) PiBundle.message("settings.cli.update.timeout")
+                    else result.output.takeLast(800).ifBlank { PiBundle.message("settings.cli.update.failed") }
+                status("cli", PiBundle.message("settings.cli.update.failedDetail", detail), error = true)
+            }
+            updatingPi = false
+            detectPi()
         }
     }
 
@@ -605,6 +648,10 @@ class WebSettingsSurface(
                 "detecting" to detectingPi,
                 "piInstalled" to piInstalled,
                 "installingPi" to installingPi,
+                "updatingPi" to updatingPi,
+                "installedPiVersion" to installedPiVersion,
+                "latestPiVersion" to latestPiVersion,
+                "piUpdateAvailable" to PiCliUpdater.updateAvailable(installedPiVersion, latestPiVersion),
                 "piInstallCommand" to PiInstaller.command(),
                 "projectAvailable" to (project?.basePath != null),
                 "embedded" to embedded,
@@ -684,7 +731,7 @@ class WebSettingsSurface(
 
     companion object {
         internal val HANDLED_MESSAGES = setOf(
-            "ready", "closeSettings", "updateDraft", "resetDraft", "resetCommitPrompt", "choosePi", "detectPi", "installPi", "importProvidersAuto",
+            "ready", "closeSettings", "updateDraft", "resetDraft", "resetCommitPrompt", "choosePi", "detectPi", "installPi", "updatePi", "importProvidersAuto",
             "importProvidersDb", "enableProvider", "saveProvider", "deleteProvider", "toggleSkill",
             "searchSkills", "installSkill", "refreshMcp", "saveMcp", "toggleMcp", "deleteMcp",
             "searchPackages", "installPackage", "removePackage",
@@ -705,6 +752,11 @@ class WebSettingsSurface(
             "settings.cli.install", "settings.cli.install.confirmTitle", "settings.cli.install.confirm",
             "settings.cli.installing", "settings.cli.install.success", "settings.cli.install.failed",
             "settings.cli.install.failedDetail", "settings.cli.install.timeout", "settings.yes",
+            "settings.cli.version.current", "settings.cli.version.latest", "settings.cli.version.checkFailed",
+            "settings.cli.version.currentUnknown", "settings.cli.version.upToDate",
+            "settings.cli.update", "settings.cli.update.confirmTitle", "settings.cli.update.confirm",
+            "settings.cli.updating", "settings.cli.update.success", "settings.cli.update.failed",
+            "settings.cli.update.failedDetail", "settings.cli.update.timeout",
             "settings.saved", "settings.autoSaved", "settings.backToChat", "settings.installed",
             "settings.providers.description", "settings.skills.description", "settings.mcp.description",
             "settings.plugins.description", "providers.claudeSection", "providers.codexSection",

@@ -44,6 +44,7 @@ class PiMainPanel(private val project: Project) : JPanel(BorderLayout()), Dispos
     private var toolbarComponent: JPanel? = null
     private var settingsSurface: WebSettingsSurface? = null
     private var showingSettings = false
+    private var chatNeedsSettingsRefresh = false
 
     /** Rebuilds the chrome after a settings change — the toolbar text is language-dependent. */
     private val settingsListener: () -> Unit = {
@@ -53,7 +54,7 @@ class PiMainPanel(private val project: Project) : JPanel(BorderLayout()), Dispos
                 toolbarComponent?.isVisible = !showingSettings
             }
             sessions.applySettings()
-            chat.applySettings()
+            if (showingSettings) chatNeedsSettingsRefresh = true else chat.applySettings()
             revalidate()
             repaint()
         }
@@ -247,6 +248,12 @@ class PiMainPanel(private val project: Project) : JPanel(BorderLayout()), Dispos
         showingSettings = false
         toolbarComponent?.isVisible = true
         contentCards.show(content, CHAT_CARD)
+        if (chatNeedsSettingsRefresh) {
+            chatNeedsSettingsRefresh = false
+            // JCEF must receive the theme after its card is visible; updating a hidden
+            // browser can leave tiles from the previous light/dark palette on screen.
+            chat.applySettings()
+        }
         chat.focusInput()
         revalidate()
         repaint()

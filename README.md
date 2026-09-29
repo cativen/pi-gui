@@ -16,7 +16,7 @@ no code with it.
    ```bash
    ./gradlew buildPlugin
    ```
-   The artifact lands at `build/distributions/pi-gui-1.0.2.zip`.
+   The artifact lands at `build/distributions/pi-gui-1.0.4.zip`.
 
 2. In your IDE: **Settings → Plugins → ⚙ → Install Plugin from Disk…**, pick the zip, restart.
 
