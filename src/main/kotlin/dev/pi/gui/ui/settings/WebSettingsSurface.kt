@@ -307,16 +307,34 @@ class WebSettingsSurface(
         status("providers", PiBundle.message("providers.importing"), busy = true)
         pooled {
             val outcome = runCatching(block).getOrElse { CcSwitchImporter.Outcome(emptyList(), emptyList()) }
-            if (outcome.imported.isEmpty() && outcome.skipped.isEmpty()) {
-                PiBundle.message("providers.import.empty")
-                    .let { status("providers", it) }
+            if (outcome.source == null) {
+                status(
+                    "providers",
+                    PiBundle.message(if (outcome.skipped.isEmpty()) "providers.import.empty" else "providers.import.failed"),
+                    error = outcome.skipped.isNotEmpty(),
+                )
                 return@pooled
             }
             val summary = registry.import(outcome)
-            val message = PiBundle.message("providers.import.done", summary.added, summary.updated, summary.skipped.size) +
+            val message = PiBundle.message("providers.import.done", summary.added, summary.updated, summary.removed, summary.skipped.size) +
                 (outcome.source?.let { PiBundle.message("providers.import.source", it) } ?: "")
-            status("providers", message)
-            reloadProviders()
+            ApplicationManager.getApplication().invokeLater({
+                if (!disposed) {
+                    val settings = PiSettings.getInstance()
+                    if (settings.activeProvider.startsWith(ProvidersRegistry.ID_PREFIX)) {
+                        val active = registry.find(settings.activeProvider)
+                        if (active == null) {
+                            settings.activeProvider = ""
+                            settings.activeModel = ""
+                        } else if (settings.activeModel !in active.models) {
+                            settings.activeModel = active.defaultModel ?: active.models.firstOrNull().orEmpty()
+                        }
+                    }
+                    settings.fireChanged()
+                    status("providers", message)
+                    reloadProviders()
+                }
+            }, ModalityState.any())
         }
     }
 

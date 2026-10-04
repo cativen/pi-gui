@@ -55,20 +55,16 @@ object CcSwitchImporter {
     /**
      * One-click import, as other GUIs do it: probes [dir] for both storage generations and
      * imports whichever is present. The v3 database wins when both exist (it is the live
-     * storage); the v2 json is only read when the db is missing or yields nothing usable.
+     * storage); the v2 json is only read when the db is missing. An empty db is still the
+     * authoritative current configuration, and falling back to an old json would restore
+     * providers that the user deleted in cc-switch.
      * When neither file exists the outcome is empty and the UI shows its "not found" hint.
      */
     fun importAuto(dir: File = defaultDir()): Outcome {
         val db = File(dir, "cc-switch.db")
         val json = File(dir, "config.json")
 
-        if (db.isFile) {
-            val fromDb = importFromDb(db)
-            if (fromDb.imported.isNotEmpty() || !json.isFile) return fromDb
-            // v3 db exists but yielded nothing usable — try the v2 json, keeping db skips visible.
-            val fromJson = importFromJson(json)
-            return Outcome(fromJson.imported, fromDb.skipped + fromJson.skipped, fromJson.source)
-        }
+        if (db.isFile) return importFromDb(db)
         if (json.isFile) return importFromJson(json)
         return Outcome(emptyList(), emptyList(), null)
     }

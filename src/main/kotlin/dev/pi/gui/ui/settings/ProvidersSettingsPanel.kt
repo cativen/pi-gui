@@ -129,19 +129,32 @@ class ProvidersSettingsPanel(
     }
 
     private fun applyImport(outcome: CcSwitchImporter.Outcome) {
-        if (outcome.imported.isEmpty() && outcome.skipped.isEmpty()) {
-            statusLabel.text = PiBundle.message("providers.import.empty")
+        if (outcome.source == null) {
+            statusLabel.text = PiBundle.message(
+                if (outcome.skipped.isEmpty()) "providers.import.empty" else "providers.import.failed",
+            )
             return
         }
         val summary = registry.import(outcome)
         statusLabel.text = PiBundle.message(
-            "providers.import.done", summary.added, summary.updated, summary.skipped.size,
+            "providers.import.done", summary.added, summary.updated, summary.removed, summary.skipped.size,
         ) + (outcome.source?.let { PiBundle.message("providers.import.source", it) } ?: "") +
             summary.skipped.joinToString("") {
                 "  " + PiBundle.message(
                     "providers.skipped.list", it.name, PiBundle.message(skipKey(it.reason)),
                 )
             }
+        val settings = PiSettings.getInstance()
+        if (settings.activeProvider.startsWith(ProvidersRegistry.ID_PREFIX)) {
+            val active = registry.find(settings.activeProvider)
+            if (active == null) {
+                settings.activeProvider = ""
+                settings.activeModel = ""
+            } else if (settings.activeModel !in active.models) {
+                settings.activeModel = active.defaultModel ?: active.models.firstOrNull().orEmpty()
+            }
+        }
+        settings.fireChanged()
         reload()
     }
 

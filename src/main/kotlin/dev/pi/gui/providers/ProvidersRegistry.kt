@@ -25,7 +25,12 @@ class ProvidersRegistry(
 
     private val LOG = Logger.getInstance(ProvidersRegistry::class.java)
 
-    data class ImportSummary(val added: Int, val updated: Int, val skipped: List<CcSwitchImporter.Skipped>)
+    data class ImportSummary(
+        val added: Int,
+        val updated: Int,
+        val removed: Int,
+        val skipped: List<CcSwitchImporter.Skipped>,
+    )
 
     fun sidecarFile(): File = File(agentDir, SIDECAR_NAME)
     fun modelsFile(): File = File(agentDir, MODELS_NAME)
@@ -44,31 +49,34 @@ class ProvidersRegistry(
     fun find(id: String): ImportedProvider? = list().firstOrNull { it.id == id }
 
     /**
-     * Merges an import outcome into the registry: entries are matched by cc-switch source id
-     * (falling back to provider id) so re-importing updates in place instead of duplicating.
+     * Synchronizes the registry with the latest cc-switch snapshot. Entries are matched by
+     * source id (falling back to provider id), preserving stable Pi ids for existing entries.
+     * Entries absent from the snapshot are removed from both the sidecar and models.json.
      */
     fun import(outcome: CcSwitchImporter.Outcome): ImportSummary {
         requireCredentialAccess()
-        val existing = readSidecar().toMutableList()
+        val existing = readSidecar()
+        val current = mutableListOf<ImportedProvider>()
         var added = 0
         var updated = 0
 
         outcome.imported.forEach { incoming ->
             val match = existing.firstOrNull { e ->
-                (incoming.sourceId != null && e.sourceId == incoming.sourceId) || e.id == incoming.id
+                (incoming.sourceId != null && e.kind == incoming.kind && e.sourceId == incoming.sourceId) ||
+                    (incoming.id.isNotBlank() && e.id == incoming.id)
             }
             if (match == null) {
-                existing += incoming.copy(id = uniqueId(incoming.name, existing))
+                current += incoming.copy(id = uniqueId(incoming.name, existing + current))
                 added++
             } else {
-                val index = existing.indexOf(match)
-                existing[index] = incoming.copy(id = match.id)
+                current += incoming.copy(id = match.id)
                 updated++
             }
         }
 
-        write(existing)
-        return ImportSummary(added, updated, outcome.skipped)
+        val removed = existing.count { old -> current.none { it.id == old.id } }
+        write(current)
+        return ImportSummary(added, updated, removed, outcome.skipped)
     }
 
     /** Applies an edit made in the settings dialog. */

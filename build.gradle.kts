@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "dev.pi"
-version = "1.0.4"
+version = "1.0.5"
 
 repositories {
     mavenCentral()
@@ -111,6 +111,11 @@ intellijPlatform {
             Windows: <code>powershell -c &quot;irm https://pi.dev/install.ps1 | iex&quot;</code></p>
         """.trimIndent()
         changeNotes = """
+            <h4>1.0.5</h4>
+            <ul>
+              <li>Synchronize imported cc-switch providers, including removals and empty configurations.</li>
+              <li>Keep the active provider and model selection in sync after an import.</li>
+            </ul>
             <h4>1.0.4</h4>
             <ul>
               <li>Refresh the full chat and settings surface when switching light and dark appearance.</li>
