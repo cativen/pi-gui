@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "dev.pi"
-version = "1.0.5"
+version = "1.0.6"
 
 repositories {
     mavenCentral()
@@ -111,6 +111,11 @@ intellijPlatform {
             Windows: <code>powershell -c &quot;irm https://pi.dev/install.ps1 | iex&quot;</code></p>
         """.trimIndent()
         changeNotes = """
+            <h4>1.0.6</h4>
+            <ul>
+              <li>Open links in chat messages with the system default browser.</li>
+              <li>Show a dismissible open-source and free notice with a link to the GitHub project.</li>
+            </ul>
             <h4>1.0.5</h4>
             <ul>
               <li>Synchronize imported cc-switch providers, including removals and empty configurations.</li>

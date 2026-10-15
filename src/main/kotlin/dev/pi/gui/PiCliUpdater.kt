@@ -22,7 +22,7 @@ object PiCliUpdater {
         connection.connectTimeout = 5_000
         connection.readTimeout = 5_000
         connection.setRequestProperty("Accept", "application/json")
-        connection.setRequestProperty("User-Agent", "Pi-GUI/1.0.5")
+        connection.setRequestProperty("User-Agent", "Pi-GUI/1.0.6")
         try {
             if (connection.responseCode != HttpURLConnection.HTTP_OK) null
             else connection.inputStream.reader(Charsets.UTF_8).use {

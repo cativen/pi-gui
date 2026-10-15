@@ -1,6 +1,7 @@
 package dev.pi.gui.ui.transcript
 
 import com.google.gson.JsonObject
+import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import dev.pi.gui.i18n.PiBundle
@@ -13,6 +14,7 @@ import dev.pi.gui.web.PiWebView
 import dev.pi.gui.web.WebPage
 import dev.pi.gui.web.WebTheme
 import javax.swing.JComponent
+import java.net.URI
 
 /**
  * The conversation, edits strip and composer, rendered by Chromium.
@@ -80,6 +82,13 @@ class WebChatSurface(
             }
             "loadEarlier" -> onLoadEarlier?.invoke()
             "copy" -> onCopy(text("text"))
+            "openExternal" -> {
+                val url = text("url")
+                val uri = runCatching { URI(url) }.getOrNull()
+                if (uri != null && uri.scheme?.lowercase() in setOf("http", "https") &&
+                    uri.host != null && uri.userInfo == null
+                ) BrowserUtil.browse(url)
+            }
             "send" -> {
                 composerText = text("text")
                 onSend?.invoke(composerText)

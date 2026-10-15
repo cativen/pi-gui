@@ -1,6 +1,7 @@
 package dev.pi.gui.ui
 
 import com.google.gson.JsonObject
+import com.intellij.ide.BrowserUtil
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionUpdateThread
@@ -51,6 +52,8 @@ import java.awt.BorderLayout
 import java.awt.CardLayout
 import java.awt.Dimension
 import java.awt.Font
+import java.awt.Color
+import java.awt.FlowLayout
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.GridBagConstraints
@@ -83,6 +86,11 @@ import javax.swing.Timer
 class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposable {
 
     private val log = Logger.getInstance(ChatPanel::class.java)
+
+    private val openSourceNotice = JPanel(BorderLayout(JBUI.scale(8), 0))
+    private val openSourceLabel = JBLabel()
+    private val starButton = PiButton(style = PiButton.Style.GHOST)
+    private val dismissNoticeButton = PiButton("×", style = PiButton.Style.GHOST)
 
     /**
      * The conversation area. Chromium when the IDE has JCEF, the original Swing view otherwise —
@@ -279,7 +287,10 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         center.background = PiTheme.chatBg
         center.add(surface.component, java.awt.BorderLayout.CENTER)
 
-        add(buildStatusStrip(), BorderLayout.NORTH)
+        add(JPanel(BorderLayout()).apply {
+            add(buildOpenSourceNotice(), BorderLayout.NORTH)
+            add(buildStatusStrip(), BorderLayout.SOUTH)
+        }, BorderLayout.NORTH)
         add(center, BorderLayout.CENTER)
         // In web mode the composer and edits strip are inside the browser, below the transcript.
         if (!webMode) {
@@ -456,6 +467,38 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
         strip.add(branchLabel, BorderLayout.EAST)
         refreshBranch()
         return strip
+    }
+
+    private fun buildOpenSourceNotice(): JComponent = openSourceNotice.apply {
+        isOpaque = true
+        border = JBUI.Borders.empty(5, 12)
+        add(openSourceLabel, BorderLayout.CENTER)
+        add(JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(4), 0)).apply {
+            isOpaque = false
+            add(starButton.apply {
+                addActionListener { BrowserUtil.browse(OPEN_SOURCE_URL) }
+            })
+            add(dismissNoticeButton.apply {
+                addActionListener {
+                    PiSettings.getInstance().openSourceNoticeDismissed = true
+                    PiSettings.getInstance().fireChanged()
+                }
+            })
+        }, BorderLayout.EAST)
+        refreshOpenSourceNotice()
+    }
+
+    private fun refreshOpenSourceNotice() {
+        val color = if (PiTheme.isDark()) Color(0x86C8F7) else Color(0x1769A5)
+        openSourceNotice.background = if (PiTheme.isDark()) Color(0x1B2D39) else Color(0xE9F5FC)
+        openSourceNotice.isVisible = !PiSettings.getInstance().openSourceNoticeDismissed
+        openSourceLabel.text = PiBundle.message("chat.opensource.notice")
+        openSourceLabel.foreground = color
+        starButton.text = PiBundle.message("chat.opensource.star")
+        starButton.foreground = color
+        dismissNoticeButton.foreground = color
+        dismissNoticeButton.toolTipText = PiBundle.message("chat.opensource.dismiss")
+        dismissNoticeButton.accessibleContext.accessibleName = dismissNoticeButton.toolTipText
     }
 
     /** Re-read `.git/HEAD`; cheap enough to call on a timer since it is mtime-cached. */
@@ -2672,6 +2715,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     fun applySettings() {
         background = PiTheme.chatBg
         center.background = PiTheme.chatBg
+        refreshOpenSourceNotice()
         surface.applySettings()
         surface.setSendOnEnter(PiSettings.getInstance().sendOnEnter)
 
@@ -2878,6 +2922,7 @@ class ChatPanel(private val project: Project) : JPanel(BorderLayout()), Disposab
     }
 
     companion object {
+        private const val OPEN_SOURCE_URL = "https://github.com/cativen/pi-gui"
         private const val CARD_EMPTY = "empty"
         private const val CARD_CHAT = "chat"
         private const val VISIBLE_PAGE_SIZE = 60

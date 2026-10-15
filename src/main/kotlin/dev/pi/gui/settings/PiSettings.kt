@@ -61,6 +61,8 @@ class PiSettings : PersistentStateComponent<PiSettings.State> {
         var commitPrompt: String = DEFAULT_COMMIT_PROMPT,
         /** User explicitly allowed Pi GUI to read locally stored AI provider credentials. */
         var credentialAccessGranted: Boolean = false,
+        /** The user permanently dismissed the open-source notice above the chat. */
+        var openSourceNoticeDismissed: Boolean = false,
     )
 
     private var state = State()
@@ -128,6 +130,10 @@ class PiSettings : PersistentStateComponent<PiSettings.State> {
     var credentialAccessGranted: Boolean
         get() = state.credentialAccessGranted
         set(value) { state.credentialAccessGranted = value }
+
+    var openSourceNoticeDismissed: Boolean
+        get() = state.openSourceNoticeDismissed
+        set(value) { state.openSourceNoticeDismissed = value }
 
     /** Notified after the settings dialog applies changes, so open panels can re-render. */
     fun addChangeListener(listener: () -> Unit) { listeners.add(listener) }

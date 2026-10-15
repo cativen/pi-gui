@@ -110,6 +110,12 @@
         if (source) send({ type: 'copy', text: source.textContent });
         return;
       }
+      var link = e.target.closest && e.target.closest('a[href]');
+      if (link && /^https?:\/\//i.test(link.href)) {
+        e.preventDefault();
+        send({ type: 'openExternal', url: link.href });
+        return;
+      }
       if (e.target.closest && e.target.closest('.load-earlier')) send({ type: 'loadEarlier' });
     });
 
